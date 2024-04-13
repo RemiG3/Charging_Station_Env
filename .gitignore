@@ -1,0 +1,28 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Dataset scenarios
+ev_scenario-*/
+
+# Custom ignore patterns for other unnecessary files
+# Add patterns for logs, databases, env files, etc. as needed
+*.log
