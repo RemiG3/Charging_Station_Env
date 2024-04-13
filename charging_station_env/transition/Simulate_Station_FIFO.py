@@ -1,0 +1,107 @@
+from typing import Type
+import numpy as np
+import gymnasium as gym
+from charging_station_env.transition import Simulate_Station_Base
+from charging_station_env.transition.Constants import Status, ChargingStatus
+
+class Simulate_Station_FIFO(Simulate_Station_Base):
+    """
+    Initializes the class.
+    """
+    def __init__(self, nb_predict_timestep: int=3):
+        self.nb_predict_timestep = nb_predict_timestep
+        self.scenario_keys = None
+        super().__init__()
+
+    """
+    This function is used to get the observation size of the environment.
+
+    Parameters:
+        env : The environment in which the agent is acting
+
+    Returns:
+        Size of the observation
+    """
+    def get_observation_size(self, env: Type[gym.Env]) -> int:
+        size = 8 + 6 * env.number_of_chargers
+        if not env.preemptive_charging:
+            size += 2 * env.number_of_chargers
+            if env.use_V2G:
+                size += 2 * env.number_of_chargers
+        return size
+    
+
+    """
+    This function is used to generate the observation array for the environment.
+
+    Parameters:
+        env : The environment in which the agent is acting
+
+    Returns:
+        The observation array
+    """
+    def __call__(self, env: Type[gym.Env]) -> np.ndarray:
+        ts = env.timestep // env.step_time
+        array_size = env.TIMESTEP_MAX / env.step_time
+        end_index = int(self.nb_predict_timestep+1-max(0, (ts+self.nb_predict_timestep+1 - array_size)))
+        
+        # Initialize scenario_keys only once at the beginning of the simulation
+        if self.scenario_keys is None:
+            for time_requests in env.scenario:
+                for req in time_requests.values():
+                    self.scenario_keys = list(req.keys())
+                    break
+                if self.scenario_keys is not None:
+                    break
+        
+        pv_production = np.array(env.energy["renewable"][ts:ts+self.nb_predict_timestep+1]) / env.energy["normalizers"]["renewable"]
+        price = np.array(env.energy["price"][ts:ts+self.nb_predict_timestep+1]) / env.energy["normalizers"]["price"]
+        # Add noise to predictions with error_range = 30% and z_value_95_confidence = 1.96
+        if end_index > 1:
+            price[1:end_index] = np.clip( np.random.normal(price[1:end_index], (.3 * price[1:end_index]) / 1.96, end_index-1), 0., 1.)
+            pv_production[1:end_index] = np.clip( np.random.normal(pv_production[1:end_index], (.3 * pv_production[1:end_index]) / 1.96, end_index-1), 0., 1.)
+        
+        preemptive_in_charging = np.array([])
+        preemptive_has_charged = np.array([])
+        preemptive_in_discharging = np.array([])
+        preemptive_has_discharged = np.array([])
+        
+        if self.scenario_keys is None:
+            plugged_ev_soc = np.array([0 for _ in range(env.number_of_chargers)])
+            plugged_ev_duration = np.array([0 for _ in range(env.number_of_chargers)]) / array_size
+            waiting_ev_soc = np.array([0 for _ in range(env.number_of_chargers)])
+            waiting_ev_duration = np.array([0 for _ in range(env.number_of_chargers)]) / array_size
+            request_ev_soc = np.array([0 for _ in range(env.number_of_chargers)])
+            request_ev_duration = np.array([0 for _ in range(env.number_of_chargers)]) / array_size
+
+            if not env.preemptive_charging:
+                preemptive_in_charging = np.array([0 for _ in range(env.number_of_chargers)])
+                preemptive_has_charged = np.array([0 for _ in range(env.number_of_chargers)])
+                preemptive_in_discharging = np.array([0 for _ in range(env.number_of_chargers)])
+                preemptive_has_discharged = np.array([0 for _ in range(env.number_of_chargers)])
+        else:
+            current_plugged_list = sorted([list(req.values()) for req in env.scenario[ts].values() if(req['status'] == Status.ACCEPTED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('arrival')], e[self.scenario_keys.index('current_soc')]))
+            current_waiting_list = sorted([list(req.values()) for req in env.scenario[ts].values() if(req['status'] == Status.WAITING)], key=lambda e: (e[self.scenario_keys.index('arrival')], e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('current_soc')]))
+            plugged_ev_soc = np.array([req_tuple[self.scenario_keys.index('current_soc')] for req_tuple in current_plugged_list] + [0 for _ in range(env.number_of_chargers - len(current_plugged_list))])
+            plugged_ev_duration = np.array([req_tuple[self.scenario_keys.index('departure')]-ts for req_tuple in current_plugged_list] + [0 for _ in range(env.number_of_chargers - len(current_plugged_list))]) / array_size
+            waiting_ev_soc = np.array([req_tuple[self.scenario_keys.index('current_soc')] for req_tuple in current_waiting_list] + [0 for _ in range(env.number_of_chargers - len(current_waiting_list))])
+            waiting_ev_duration = np.array([req_tuple[self.scenario_keys.index('departure')]-ts for req_tuple in current_waiting_list] + [0 for _ in range(env.number_of_chargers - len(current_waiting_list))]) / array_size
+
+            current_requests_list = sorted([list(req.values()) for req in env.scenario[ts].values() if((req['status'] == Status.ARRIVED) or (req['status'] == Status.REJECTED))], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('current_soc')]))
+            request_ev_soc = np.array([req_tuple[self.scenario_keys.index('current_soc')] for req_tuple in current_requests_list] + [0 for _ in range(env.number_of_chargers - len(current_requests_list))])
+            request_ev_duration = np.array([req_tuple[self.scenario_keys.index('departure')]-ts for req_tuple in current_requests_list] + [0 for _ in range(env.number_of_chargers - len(current_requests_list))]) / array_size
+            
+            if not env.preemptive_charging:
+                preemptive_in_charging = np.array([int(ChargingStatus.PREEMPTIVE_IN_CHARGING in req_tuple[self.scenario_keys.index('charging_status')]) for req_tuple in current_plugged_list] + [0 for _ in range(env.number_of_chargers - len(current_plugged_list))])
+                preemptive_has_charged = np.array([int(ChargingStatus.PREEMPTIVE_HAS_CHARGED in req_tuple[self.scenario_keys.index('charging_status')]) for req_tuple in current_plugged_list] + [0 for _ in range(env.number_of_chargers - len(current_plugged_list))])
+                if env.use_V2G:
+                    preemptive_in_discharging = np.array([int(ChargingStatus.PREEMPTIVE_IN_DISCHARGING in req_tuple[self.scenario_keys.index('charging_status')]) for req_tuple in current_plugged_list] + [0 for _ in range(env.number_of_chargers - len(current_plugged_list))])
+                    preemptive_has_discharged = np.array([int(ChargingStatus.PREEMPTIVE_HAS_DISCHARGED in req_tuple[self.scenario_keys.index('charging_status')]) for req_tuple in current_plugged_list] + [0 for _ in range(env.number_of_chargers - len(current_plugged_list))])
+
+        observations = np.concatenate((price, pv_production, plugged_ev_soc, preemptive_in_charging, preemptive_has_charged, preemptive_in_discharging, preemptive_has_discharged,
+                                       plugged_ev_duration, waiting_ev_soc, waiting_ev_duration, request_ev_soc, request_ev_duration), axis=None)
+
+        assert not (-1. > observations).any() or (observations > 1.).any(), "Observation values out of range"
+
+        return observations
+

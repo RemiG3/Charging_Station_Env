@@ -1,0 +1,81 @@
+{
+    "schema_name": "Identical_chargers+Grid_limit__constant_charging__15_timestep",
+    "seed": 0,
+    
+    "step_time": 15,
+    "number_of_days": 1,
+    "price_flag": "random",
+    "solar_flag": 1,
+    "grid_limit": 75.0,
+    
+    "Types_of_EV": {
+        "classic": {
+            "capacity": 45,
+            "chargers_type_compatibilities": ["low", "medium", "high"]
+        },
+        "type-1": {
+            "capacity": 35,
+            "chargers_type_compatibilities": ["low", "medium", "high"]
+        },
+        "type-2": {
+            "capacity": 50,
+            "chargers_type_compatibilities": ["low", "medium", "high"]
+        },
+        "type-3": {
+            "capacity": 65,
+            "chargers_type_compatibilities": ["low", "medium", "high"]
+        },
+        "type-4": {
+            "capacity": 80,
+            "chargers_type_compatibilities": ["low", "medium", "high"]
+        },
+        "type-5": {
+            "capacity": 95,
+            "chargers_type_compatibilities": ["low", "medium", "high"]
+        }
+    },
+    
+    "EV_config": {
+        "considered_ev": ["classic"]
+    },
+    
+    "Types_of_chargers": {
+        "low": {
+            "charging_rate": 11,
+            "discharging_rate": 11,
+            "charging_efficiency": 0.91,
+            "discharging_efficiency": 0.91
+        },
+        "medium": {
+            "charging_rate": 22,
+            "discharging_rate": 22,
+            "charging_efficiency": 0.91,
+            "discharging_efficiency": 0.91
+        },
+        "high": {
+            "charging_rate": 43,
+            "discharging_rate": 43,
+            "charging_efficiency": 0.91,
+            "discharging_efficiency": 0.91
+        }
+    },
+    
+    "Chargers_config": {
+        "list_chargers": ["low", "low", "low", "low", "low", "low", "low", "low", "low", "low"],
+        
+        "preemptive": 1,
+        "comment on preemptive": "value in {0, 1}",
+
+        "use_V2G": 0,
+        "comment on use_V2G": "value in {0, 1}",
+
+        "charging_mode": "constant",
+        "comment on charging_mode": "value in [variable, constant, discrete]"
+    },
+    
+    "data": {
+        "sdg_path": "../../charging_station_env/initializer/synthetic_data_generator",
+        "sdg_model_name": "ACpoisson_fit",
+        "pv_data_path": "../../charging_station_env/initializer/pv_production_data/data.csv"
+    }
+}
