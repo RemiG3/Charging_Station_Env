@@ -8,7 +8,7 @@
     "solar_flag": 1,
     "grid_limit": 75.0,
     
-    "Types_of_EV": {
+    "EV_types": {
         "classic": {
             "capacity": 45,
             "chargers_type_compatibilities": ["low", "medium", "high"]
@@ -39,7 +39,7 @@
         "considered_ev": ["classic"]
     },
     
-    "Types_of_chargers": {
+    "Charger_types": {
         "low": {
             "charging_rate": 11,
             "discharging_rate": 11,

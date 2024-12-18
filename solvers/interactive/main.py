@@ -33,7 +33,7 @@ if __name__ == "__main__":
     parser.add_argument("--episode", default=1, type=int)
     parser.add_argument("--schema", default="../../schema.json")
     parser.add_argument("--current_folder", default=None)
-    parser.add_argument("--initializer", default="Initializer_FIFO")
+    parser.add_argument("--initializer", default="Initializer")
     parser.add_argument("--simulation", default="Simulate_Station_FIFO")
     parser.add_argument("--action", default="Simulate_Actions_FIFO")
     parser.add_argument("--energy", default="Energy_Initializer")
@@ -73,3 +73,5 @@ if __name__ == "__main__":
     print(final_reward)
 
     env.close()
+
+

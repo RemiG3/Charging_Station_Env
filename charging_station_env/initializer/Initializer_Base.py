@@ -71,6 +71,8 @@ class Initializer_Base:
     def _save(self, env: Type[gym.Env], scenario: Dict, energy: Dict) -> None:
         data = {'scenario': scenario, 'energy': energy}
         if(env.current_folder is not None):
+            if not os.path.exists(env.current_folder):
+                os.makedirs(env.current_folder)
             if (env.id_save is not None):
                 with open(os.path.join(env.current_folder, f'Initial_Values-{env.id_save}.pickle'), 'wb') as f:
                     pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)

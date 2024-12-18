@@ -14,3 +14,4 @@ stable-baselines3==2.1.0
 statsmodels==0.14.0
 tensorboard==2.12.3
 torch==1.13.0
+xgboost==2.1.2

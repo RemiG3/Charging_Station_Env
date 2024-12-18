@@ -29,7 +29,7 @@ if __name__ == "__main__":
             try:
                 with open(os.path.join(args.current_folder, f'Initial_Values-{scenario_number}.pickle'), 'rb') as f:
                     initial_values = pickle.load(f)
-                with open(os.path.join(current_root_results_folder, f"ROLLING-Results-{scenario_number}.pickle"), 'rb') as f:
+                with open(os.path.join(current_root_results_folder, f"{algo_name}-Results-{scenario_number}.pickle"), 'rb') as f:
                     results = pickle.load(f)
                 stats = get_statistics(initial_values, results)
                 for key, value in stats.items():

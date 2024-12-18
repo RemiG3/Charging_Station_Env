@@ -5,11 +5,18 @@ class Baseline:
     def __init__(self):
         self.epsilon = 1e-6
         self.scenario_keys = None
+        self.sp_t = [0.]
 
     def select_action(self, env, states):
-        action = [0 for _ in range(2*env.number_of_chargers)]
         ts = env.timestep // env.step_time
-        list_ev_types = list(env.ev_config['considered_ev'])
+        nb_predict = env.simulation_controller.nb_predict_timestep
+        if(len(self.sp_t) < nb_predict):
+            self.sp_t = self.sp_t + [0. for _ in range(nb_predict-len(self.sp_t))]
+        self.sp_t.append(0.)
+        for i in range(1, nb_predict+1):
+            self.sp_t[-i-1] = states[i] * env.energy["normalizers"]["renewable"]
+        action = [0 for _ in range(2*env.number_of_chargers)]
+        list_ev_types = list(env.schema['EV_config']['considered_ev'])
 
         if(self.scenario_keys is None):
             for time_requests in env.scenario:
@@ -31,30 +38,22 @@ class Baseline:
         cumul_power_demand = -env.energy['renewable'][ts]
         offset = env.number_of_chargers
         for idx, req_tuple in enumerate(current_plugged_list):
+            if(req_tuple is None):
+                continue
             dep = req_tuple[self.scenario_keys.index('departure')]
 
-            car_type = env.ev_types[list_ev_types[req_tuple[self.scenario_keys.index('type')]]]
-            selected_charger = env.chargers_types[env.chargers_config["list_chargers"][req_tuple[self.scenario_keys.index('charger')]]]
+            car_type = env.schema['EV_types'][list_ev_types[req_tuple[self.scenario_keys.index('type')]]]
+            selected_charger = env.schema['Charger_types'][env.schema['Chargers_config']["list_chargers"][req_tuple[self.scenario_keys.index('charger')]]]
             power_demand = min(selected_charger['charging_rate']*selected_charger['charging_efficiency'], (1-req_tuple[self.scenario_keys.index('current_soc')])*car_type['capacity'] / (env.step_time / 60))
             power_demand = power_demand/selected_charger['charging_efficiency']
-            if (power_demand > self.epsilon) and (cumul_power_demand+power_demand < env.grid_limit):
+            if (power_demand > self.epsilon) and (cumul_power_demand+power_demand < env.schema['grid_limit']):
                 if ((dep - ts) * env.step_time/60 <= 3):
                     action[offset+idx] = 1
                     cumul_power_demand += power_demand
                 else:
-                    T = env.TIMESTEP_MAX//env.step_time
-                    sp_t = [sp * env.energy["normalizers"]["renewable"] for sp in states[4:4+min(T-1, ts+4) - ts]]
-                    if(power_demand/2 <= (sp_t[0] + sp_t[-1])/2):
+                    if(power_demand/2 <= (self.sp_t[ts] + self.sp_t[ts+nb_predict])/2):
                         action[offset+idx] = 1
                         cumul_power_demand += power_demand
-                    # else:
-                    #     action[offset+idx] = 0
-            # else:
-            #     action[offset+idx] = 0
-            
-        
-        #print('states', states)
-        #print('action', action)
 
         return action
 
@@ -98,3 +97,4 @@ class Baseline:
 #                 action[offset+charger] = (states[0] + states[2]) / 2
 
 #         return action
+

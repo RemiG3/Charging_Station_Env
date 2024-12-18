@@ -5,7 +5,7 @@ import os
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_checker import check_env
-from utils_rl import CustomActorCriticPolicy, parse_list_act_fn, parse_list_int_with_None, parse_list_bool, parse_list_float, parse_bool, parse_dic_args
+from utils_rl import CustomActorCriticPolicy, parse_str_with_None, parse_list_act_fn, parse_list_int_with_None, parse_list_bool, parse_list_float, parse_bool, parse_dic_args
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env.patch_gym import _patch_env
 
@@ -141,12 +141,12 @@ class CustomPPO(PPO):
 
     def _post_process_actions(self, env, actions):
         power_actions = actions[:, env.number_of_chargers:]
-        power_chargers = np.repeat(np.array([env.chargers_types[env.chargers_config["list_chargers"][charger]]['charging_rate'] for charger in range(env.number_of_chargers)])[np.newaxis, :], actions.shape[0], axis=0)
+        power_chargers = np.repeat(np.array([env.schema['Charger_types'][env.schema['Chargers_config']["list_chargers"][charger]]['charging_rate'] for charger in range(env.number_of_chargers)])[np.newaxis, :], actions.shape[0], axis=0)
         power_demands = power_actions * power_chargers
         
         # Get the indices of the cumulative sum that exceed the limit power by beginning the sum from the index 0
         ts = env.timestep // env.step_time
-        power_masks = np.where(np.cumsum(power_demands, axis=1) > env.grid_limit+env.energy['renewable'][ts], 0, 1)
+        power_masks = np.where(np.cumsum(power_demands, axis=1) > env.schema['grid_limit']+env.energy['renewable'][ts], 0, 1)
         actions[:, env.number_of_chargers:] = actions[:, env.number_of_chargers:] * power_masks
 
         return actions
@@ -344,32 +344,33 @@ if __name__ == "__main__":
     parser.add_argument("--seed", default=0, type=int)
     parser.add_argument("--episodes", default=1_000_000, type=int)
     parser.add_argument("--eval_episodes", default=500, type=int)
+    parser.add_argument("--eval_freq", default=20_000, type=int)
     parser.add_argument("--schema", default="../../schema.json")
-    parser.add_argument("--initializer", default="Initializer_FIFO")
+    parser.add_argument("--initializer", default="Initializer")
     parser.add_argument("--simulation", default="Simulate_Station_FIFO")
     parser.add_argument("--action", default="Simulate_Actions_FIFO")
     parser.add_argument("--energy", default="Energy_Initializer")
     parser.add_argument("--model_path_saved", default=None, type=str, help="The path to the trained model to continue training")
-    parser.add_argument("--initializer_args", default={}, type=parse_dic_args)
+    parser.add_argument("--initializer_args", default="nb_ev_min_range=50,nb_ev_max_range=150", type=parse_dic_args)
     parser.add_argument("--simulation_args", default={}, type=parse_dic_args)
     parser.add_argument("--action_args", default={}, type=parse_dic_args)
     parser.add_argument("--energy_args", default={}, type=parse_dic_args)
     parser.add_argument("--folder_name", default="PPO", type=str)
-    parser.add_argument("--learning_rate", default=0.0003, type=float)
-    parser.add_argument("--batch_size", default=64, type=int)
+    parser.add_argument("--learning_rate", default=0.006, type=float)
+    parser.add_argument("--batch_size", default=512, type=int)
     parser.add_argument("--gamma", default=0.99, type=float)
-    parser.add_argument("--n_steps", default=2048, type=int)
+    parser.add_argument("--n_steps", default=4096, type=int)
     parser.add_argument("--n_epochs", default=10, type=int)
     parser.add_argument("--clip_range", default=0.2, type=float)
-    parser.add_argument("--gae_lambda", default=0.95, type=float)
-    parser.add_argument("--max_grad_norm", default=0.5, type=float)
-    parser.add_argument("--ent_coef", default=0., type=float)
-    parser.add_argument("--vf_coef", default=0.5, type=float)
+    parser.add_argument("--gae_lambda", default=0.98, type=float)
+    parser.add_argument("--max_grad_norm", default=0.97, type=float)
+    parser.add_argument("--ent_coef", default=0.01, type=float)
+    parser.add_argument("--vf_coef", default=0.2, type=float)
     parser.add_argument("--normalize_advantage", default=True, type=parse_bool)
     parser.add_argument("--policy_activation", default="tanh", type=parse_list_act_fn)
     parser.add_argument("--policy_net_shared", default="", type=parse_list_int_with_None)
-    parser.add_argument("--policy_net_pi", default="64,64", type=parse_list_int_with_None)
-    parser.add_argument("--policy_net_vf", default="64,64", type=parse_list_int_with_None)
+    parser.add_argument("--policy_net_pi", default="512,512", type=parse_list_int_with_None)
+    parser.add_argument("--policy_net_vf", default="512,512", type=parse_list_int_with_None)
     parser.add_argument("--policy_nn_dropout", default=0., type=parse_list_float)
     parser.add_argument("--policy_nn_batchnorm", default=False, type=parse_list_bool)
     args = parser.parse_args()
@@ -389,10 +390,8 @@ if __name__ == "__main__":
     policy_vf = 'x'.join(map(str, args.policy_net_vf)) if(len(args.policy_net_vf) > 0) else None
     batchnorm = 'BN' if args.policy_nn_batchnorm else 'noBN'
     dropout = f'dropout=[{",".join(args.policy_nn_dropout)}]' if isinstance(args.policy_nn_dropout, list) else f'dropout={args.policy_nn_dropout}'
-    models_dir = f"models/{args.folder_name}-{policy_activation}_{policy_shared}_{policy_pi}_{policy_vf}_{batchnorm}_{dropout}-{env.schema_name}-{num_id}"
-    logdir = f"logs/{args.folder_name}-{policy_activation}_{policy_shared}_{policy_pi}_{policy_vf}_{batchnorm}_{dropout}-{env.schema_name}-{num_id}"
-    #models_dir = f"models/{args.folder_name}-{env.schema_name}-{num_id}"
-    #logdir = f"logs/{args.folder_name}-{env.schema_name}-{num_id}"
+    models_dir = f"models/{args.folder_name}-{policy_activation}_{policy_shared}_{policy_pi}_{policy_vf}_{batchnorm}_{dropout}-{env.schema['schema_name']}-{num_id}"
+    logdir = f"logs/{args.folder_name}-{policy_activation}_{policy_shared}_{policy_pi}_{policy_vf}_{batchnorm}_{dropout}-{env.schema['schema_name']}-{num_id}"
 
     if not os.path.exists(models_dir):
         os.makedirs(models_dir)

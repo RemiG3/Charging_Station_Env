@@ -10,8 +10,9 @@ import argparse
 import pickle
 import os
 
-ALGO_NAME_DICT = {k: v for k, v in zip(['1phase_model-', '2phase_model-', '3phase_model-'],
-                                       ['1PHASE_MODEL', '2PHASE_MODEL', '3PHASE_MODEL'])}
+ALGO_NAME_DICT = {k: v for k, v in zip(['complete_milp_gurobi-'],
+                                       ['COMPLETE_MODEL'])}
+
 
 TO = 30*60 # Timeout out constant in models (in seconds)
 
@@ -24,7 +25,7 @@ if __name__ == "__main__":
     parser.add_argument("--schema", default="../../schema.json")
     parser.add_argument("--current_folder", default="../../dataset/ev_scenario-50")
     parser.add_argument("--results_folder", default="./ev_scenario-50")
-    parser.add_argument("--initializer", default="Initializer_FIFO")
+    parser.add_argument("--initializer", default="Initializer")
     parser.add_argument("--simulation", default="Simulate_Station_FIFO")
     parser.add_argument("--action", default="Simulate_Actions_FIFO")
     parser.add_argument("--energy", default="Energy_Initializer")
@@ -51,7 +52,7 @@ if __name__ == "__main__":
                        simulation_controller=getattr(getattr(__import__('charging_station_env'), 'transition'), args.simulation)(**args.simulation_args),
                        action_controller=getattr(getattr(__import__('charging_station_env'), 'action'), args.action)(**args.action_args),
                        )
-
+        
         scenario_keys = ['num', 'arrival', 'departure', 'initial_soc', 'current_soc', 'status', 'charging_status', 'charger', 'type']
 
         n = 0
@@ -73,7 +74,9 @@ if __name__ == "__main__":
     for filename in sorted(os.listdir(args.results_folder)):
         if filename.endswith('.log'):
             print(f'Extract metric from {os.path.join(args.results_folder, filename)}\t', end='\r')
-            metrics.append( process_metrics(TO, os.path.join(args.results_folder, filename), algo_name_dict=ALGO_NAME_DICT, dir_res_name=args.results_folder) )
+            metric = process_metrics(TO, os.path.join(args.results_folder, filename), algo_name_dict=ALGO_NAME_DICT, dir_res_name=args.results_folder)
+            if metric is not None:
+                metrics.append( metric )
     print(flush=True)
 
     with open(args.save, 'wb') as handle:

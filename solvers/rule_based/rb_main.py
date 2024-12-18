@@ -6,6 +6,7 @@ import argparse
 import os
 
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--env", default="ChargingStationEnv-v0")
@@ -15,7 +16,7 @@ if __name__ == "__main__":
     parser.add_argument("--results_folder", default="../../results/rule_based/ev_scenario-50/")
     parser.add_argument("--module_algorithm", default="baseline", type=str)
     parser.add_argument("--algorithm", default="Baseline", type=str)
-    parser.add_argument("--initializer", default="Initializer_FIFO")
+    parser.add_argument("--initializer", default="Initializer")
     parser.add_argument("--simulation", default="Simulate_Station_FIFO")
     parser.add_argument("--action", default="Simulate_Actions_FIFO")
     parser.add_argument("--energy", default="Energy_Initializer")
@@ -48,7 +49,7 @@ if __name__ == "__main__":
     for ep in range(args.episodes):
         done = False
         algo = getattr(__import__(args.module_algorithm), args.algorithm)()
-        state = env.reset(reset_flag=args.reset_flag, id_save=ep+1, algo_name=algo_name)
+        state, _ = env.reset(reset_flag=args.reset_flag, id_save=ep+1, algo_name=algo_name)
 
         while not done:
             if (args.visualizer is not None):
@@ -59,3 +60,5 @@ if __name__ == "__main__":
             rewards_list.append(rewards)
 
     print('Total rewards:', sum(rewards_list))
+
+

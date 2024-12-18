@@ -11,5 +11,4 @@ from charging_station_env.Charging_Station_Enviroment import ChargingStationEnv
 register(
     id='ChargingStationEnv-v0',
     entry_point='charging_station_env:ChargingStationEnv',
-    max_episode_steps=200,
 )

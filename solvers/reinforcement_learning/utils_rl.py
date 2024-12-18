@@ -1,6 +1,6 @@
 import sys
 sys.path.append('../../')
-from utils import parse_list_int_with_None, parse_list_bool, parse_list_float, parse_bool, parse_dic_args
+from utils import parse_str_with_None, parse_list_int_with_None, parse_list_bool, parse_list_float, parse_bool, parse_dic_args
 
 import gymnasium as gym
 import warnings
@@ -146,6 +146,8 @@ class CustomActorCriticPolicy(ActorCriticPolicy):
     ):
         self.nn_batchnorm = nn_batchnorm
         self.nn_dropout = nn_dropout
+        if 'use_sde' in kwargs:
+            del kwargs['use_sde']
         
         warnings.filterwarnings(action='ignore', category=UserWarning, module='stable_baselines3')
         super(CustomActorCriticPolicy, self).__init__(
@@ -182,6 +184,8 @@ class CustomMaskableActorCriticPolicy(MaskableActorCriticPolicy):
     ):
         self.nn_batchnorm = nn_batchnorm
         self.nn_dropout = nn_dropout
+        if 'use_sde' in kwargs:
+            del kwargs['use_sde']
         
         warnings.filterwarnings(action='ignore', category=UserWarning, module='sb3_contrib')
         super(CustomMaskableActorCriticPolicy, self).__init__(

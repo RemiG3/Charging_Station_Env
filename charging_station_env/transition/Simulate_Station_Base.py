@@ -19,7 +19,7 @@ class Simulate_Station_Base:
         Size of the observation
     """
     def get_observation_size(self, env: Type[gym.Env]) -> int:
-        return 8+5*env.number_of_chargers
+        raise NotImplementedError('Call to Base class is not implemented')
     
     """
     This function is used to simulate the station of the environment.

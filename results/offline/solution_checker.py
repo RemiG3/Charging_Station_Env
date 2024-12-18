@@ -124,10 +124,10 @@ def check(result):
     check_right_to_charge(result)
     check_charging_overlap(result)
     check_one_ev_per_charger(result)
-    check_accepted_ev_charged_at_least_once(result)
-    check_accepted_ev_socf_equal_to_soc0(result)
     check_ev_acc_and_charged_on_same_charger(result)
     check_grid_limit_exceeding(result)
+    check_accepted_ev_charged_at_least_once(result)
+    check_accepted_ev_socf_equal_to_soc0(result)
     #check_socf_calculation(result)
     #check_gt_calculation(result)
 
@@ -143,14 +143,28 @@ if __name__ == '__main__':
     if args.dir is not None:
         for filename in sorted(os.listdir(args.dir)):
             if (filename.endswith('.log')):
-                filepath = os.path.join(args.dir, filename)
-                result = get_variables(filepath)
-                print(f'Proceeding {filename}...', end='\t', flush=True)
-                check(result)
-                print('DONE!', flush=True)
+                try:
+                    filepath = os.path.join(args.dir, filename)
+                    result = get_variables(filepath)
+                    print(f'Proceeding {filename}...', end='\t', flush=True)
+                    check(result)
+                    print('DONE!', flush=True)
+                except AssertionError as e:
+                    print('FAILED!')
+                    print(f'ASSERTION: {e}', flush=True)
+                except Exception as e:
+                    print('FAILED!')
+                    print(f'Unexpected Error: {e}', flush=True)
     else:
-        result = get_variables(args.file)
-        check(result)
+        try:
+            result = get_variables(args.file)
+            check(result)
+        except AssertionError as e:
+            print('FAILED!')
+            print(f'ASSERTION: {e}', flush=True)
+        except Exception as e:
+            print('FAILED!')
+            print(f'Unexpected Error: {e}', flush=True)
     
     print('Done')
 

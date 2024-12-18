@@ -17,6 +17,18 @@ class Simulate_Actions_Base:
     """
     def __init__(self):
         pass
+    
+    """
+    This function is used to get the action space of the environment.
+
+    Parameters:
+        env : The environment in which the agent is acting
+
+    Returns:
+        Gymnasium action space
+    """
+    def get_action_space(self, env: Type[gym.Env]) -> int:
+        return NotImplementedError('get_action_space function at Base class is not implemented')
 
     """
     This function is used to simulate the actions taken by the agent in the environment.

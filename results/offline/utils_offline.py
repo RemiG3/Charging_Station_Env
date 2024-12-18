@@ -115,6 +115,7 @@ def is_charger_busy(online_res, ev_dmd, ts, num_ref, charger):
 
 def process_offline_result(filename, env, scenario_keys):
     offline_sol = get_variables(filename)
+    assert offline_sol['Parameters']['n'] == sum([int((req['status'] == Status.REJECTED) or (req['status'] == Status.ARRIVED) or (req['status'] == Status.FINISHED)) for t in range(97) for req in env.scenario[t].values()]), f"{sum([int((req['status'] == Status.REJECTED) or (req['status'] == Status.ARRIVED) or (req['status'] == Status.FINISHED)) for t in range(97) for req in env.scenario[t].values()])} != {offline_sol['Parameters']['n']} \t Filename: {filename}"
     online_res = convert_result_to_online_format(offline_sol , env)
     
     rewards_list = []
@@ -175,7 +176,7 @@ def process_offline_result(filename, env, scenario_keys):
         current_charging_list = current_plugged_list+current_waiting_list
         for ev_num in range(len(online_res)):
             if((online_res[ev_num]['PA'] is not None) and (online_res[ev_num]['PA'][t] == 1)):
-                assert (env.scenario[t][ev_num]["current_soc"] < env.scenario[t+1][ev_num]["current_soc"]), f'Power allocation failed for EV {ev_num} on charger {cur_req[scenario_keys.index("charger")]} with current soc {env.scenario[t][ev_num]["current_soc"]} and next soc {env.scenario[t+1][ev_num]["current_soc"]}'
+                assert (env.scenario[t][ev_num]["current_soc"] < env.scenario[t+1][ev_num]["current_soc"]), f'Power allocation failed for EV {ev_num} with the status {cur_req[scenario_keys.index("status")]} on charger {cur_req[scenario_keys.index("charger")]} with current soc {env.scenario[t][ev_num]["current_soc"]} and next soc {env.scenario[t+1][ev_num]["current_soc"]}'
 
         for ts in range(t, 97):
             charger_list = []
@@ -270,7 +271,11 @@ def process_metrics(TO, filename, algo_name_dict=None, dir_res_name=None):
         metric['GAP_P3'] = None
     
     if (dir_res_name is not None) and (algo_name_dict is not None):
-        algo_name = algo_name_dict[metric['filename'].split('-')[0]+'-']
+        try:
+            algo_name = algo_name_dict[metric['filename'].split('-')[0]+'-']
+        except:
+            print(f"WARNING: \"{metric['filename'].split('-')[0]+'-'}\" not found in the algorithm dictionary", end='\r')
+            return
         try:
             n = metric['filename'].split('-')[-1].split('.')[0]
             with open(os.path.join(dir_res_name, f"{algo_name}-Results-{n}.pickle"), 'rb') as f:
@@ -281,3 +286,4 @@ def process_metrics(TO, filename, algo_name_dict=None, dir_res_name=None):
             metric['reward value'] = None
     
     return metric
+

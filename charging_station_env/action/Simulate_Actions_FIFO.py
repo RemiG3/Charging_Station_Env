@@ -3,6 +3,8 @@ from charging_station_env.transition.Constants import Status, ChargingStatus
 from charging_station_env.action import Simulate_Actions_Base
 import numpy as np
 import gymnasium as gym
+from gymnasium import spaces
+
 
 
 class Simulate_Actions_FIFO(Simulate_Actions_Base):
@@ -44,6 +46,21 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
         self.scenario_keys = None
     
     
+    """
+    This function is used to get the action space of the environment.
+
+    Parameters:
+        env : The environment in which the agent is acting
+
+    Returns:
+        Gymnasium action space
+    """
+    def get_action_space(self, env: Type[gym.Env]) -> int:
+        if env.use_V2G:
+            print('WARNING: V2G will be ignored since the action space is binary!')
+        return spaces.MultiBinary(env.number_of_chargers*2)
+
+
     """
     This function is used to get the metrics of the environment.
 
@@ -88,9 +105,9 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
     
 
     def _process_chargers_and_requests(self, env, actions, ts):
-        ts_chargers_used_list = [[req['charger'] for req in time_requests.values() if(req['charger'] != -1)] for time_requests in env.scenario]
-        current_requests_list = sorted([list(req.values()) for req in env.scenario[ts].values() if(req['status'] == Status.ARRIVED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('current_soc')]))
-        if (env.chargers_config['charging_mode'] == 'discrete') or (env.chargers_config['charging_mode'] == 'constant'):
+        ts_chargers_used_list = [sorted([req['charger'] for req in time_requests.values() if(req['charger'] != -1)]) for time_requests in env.scenario]
+        current_requests_list = sorted([list(req.values()) for req in env.scenario[ts].values() if((req['status'] == Status.ARRIVED) or (req['status'] == Status.REJECTED))], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('current_soc')]))
+        if (env.schema['Chargers_config']['charging_mode'] == 'discrete') or (env.schema['Chargers_config']['charging_mode'] == 'constant'):
             actions[env.number_of_chargers:] = list(map(int, map(round, actions[env.number_of_chargers:])))
 
         for idx in range(env.number_of_chargers):
@@ -98,22 +115,17 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
                 num = current_requests_list[idx][self.scenario_keys.index('num')]
                 req = env.scenario[ts][num]
 
-                if int(round(actions[idx])) == 1:
+                if (int(round(actions[idx])) == 1) and (req['status'] == Status.ARRIVED):
                     charger = None
                     for t in range(ts, req['departure']):
                         env.scenario[t][num] = {
-                                'num': num,
-                                'arrival': req['arrival'],
-                                'departure': req['departure'],
-                                'initial_soc': req['initial_soc'],
-                                'current_soc': req['current_soc']
+                                k: v for k, v in req.items()
                         }
                         if len(ts_chargers_used_list[t]) >= env.number_of_chargers:
                             env.scenario[t][num].update({
                                 'status': Status.WAITING,
                                 'charging_status': {ChargingStatus.UNPLUGGED},
                                 'charger': -1,
-                                'type': req['type']
                             })
                         else:
                             if charger is None:
@@ -122,33 +134,27 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
                                 'status': Status.ACCEPTED,
                                 'charging_status': {ChargingStatus.UNKNOWN},
                                 'charger': charger,
-                                'type': req['type']
                             })
                             if num not in self.history["waiting_time_ev"]:
                                 self.history["waiting_time_ev"][num] = t - ts
                             ts_chargers_used_list[t].append(charger)
 
-
-                    env.scenario[req['departure']][num] = {
-                            'num': num,
-                            'arrival': req['arrival'],
-                            'departure': req['departure'],
-                            'initial_soc': req['initial_soc'],
-                            'current_soc': req['current_soc']
-                    }
-                    if charger is not None:
-                        env.scenario[req['departure']][num].update({
-                            'status': Status.FINISHED,
+                    if (charger is None):
+                        env.scenario[ts][num].update({
+                            'status': Status.REJECTED,
                             'charging_status': {ChargingStatus.UNPLUGGED},
                             'charger': -1,
-                            'type': req['type']
                         })
+                        for t in range(ts+1, req['departure']):
+                            del env.scenario[t][num]
                     else:
+                        env.scenario[req['departure']][num] = {
+                                k: v for k, v in req.items()
+                        }
                         env.scenario[req['departure']][num].update({
                             'status': Status.FINISHED,
                             'charging_status': {ChargingStatus.UNPLUGGED},
                             'charger': -1,
-                            'type': req['type']
                         })
                 else:
                     req['status'] = Status.REJECTED
@@ -165,55 +171,37 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
     def _process_charging_actions(self, env, actions, ts):
         current_plugged_list = sorted([list(req.values()) for req in env.scenario[ts].values() if(req['status'] == Status.ACCEPTED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('arrival')], e[self.scenario_keys.index('current_soc')]))
 
-        is_discrete_charging = (env.schema['Chargers_config']['charging_mode'] == 'discrete')
-        list_ev_types = list(env.ev_config['considered_ev'])
+        list_ev_types = list(env.schema['EV_config']['considered_ev'])
         p_charging = np.zeros(env.number_of_chargers)
         consumed_energies = np.zeros(env.number_of_chargers)
         offset = env.number_of_chargers
         for idx, req_tuple in enumerate(current_plugged_list):
             num = req_tuple[self.scenario_keys.index('num')]
             req = env.scenario[ts][num]
-            selected_charger = env.chargers_types[env.chargers_config["list_chargers"][req['charger']]]
-            car_type = env.ev_types[list_ev_types[req['type']]]
+            selected_charger = env.schema['Charger_types'][env.schema['Chargers_config']["list_chargers"][req['charger']]]
+            car_type = env.schema['EV_types'][list_ev_types[req['type']]]
             
             if ChargingStatus.UNKNOWN in req['charging_status']:
                 req['charging_status'].remove(ChargingStatus.UNKNOWN)
             
             if not env.preemptive_charging:
-                if(is_discrete_charging):
-                    charging_rate = env.discrete_charging_rate[idx][actions[offset+idx]]
-                    charging_eff = env.discrete_charging_eff[idx][actions[offset+idx]]
-                    if (charging_rate > 0) and (ChargingStatus.PREEMPTIVE_HAS_CHARGED not in req['charging_status']):
-                        max_charging_energy = min(charging_rate*charging_eff * (env.step_time / 60), (1-req['current_soc'])*car_type['capacity'])
-                        consumed_energy = max_charging_energy/charging_eff
-                        req['charging_status'].add(ChargingStatus.IN_CHARGING)
-                    elif env.use_V2G and (charging_rate < 0) and (ChargingStatus.PREEMPTIVE_HAS_DISCHARGED not in req['charging_status']):
-                        max_charging_energy = -min(-charging_rate * (env.step_time / 60), req['current_soc']*car_type['capacity'])
-                        consumed_energy = max_charging_energy*charging_eff
-                        req['charging_status'].add(ChargingStatus.IN_DISCHARGING)
-                    else:
-                        max_charging_energy = 0
-                        consumed_energy = 0
-                    p_charging[idx] = max_charging_energy
-                    consumed_energies[idx] = consumed_energy
+                if (actions[offset+idx] > 0) and (ChargingStatus.PREEMPTIVE_HAS_CHARGED not in req['charging_status']):
+                    max_charging_energy = min(actions[offset+idx]*selected_charger['charging_rate']*selected_charger['charging_efficiency'] * (env.step_time / 60), (1-req['current_soc'])*car_type['capacity'])
+                    consumed_energy = max_charging_energy/selected_charger['charging_efficiency']
+                    req['charging_status'].add(ChargingStatus.IN_CHARGING)
+                elif env.use_V2G and (actions[offset+idx] < 0) and (ChargingStatus.PREEMPTIVE_HAS_DISCHARGED not in req['charging_status']):
+                    max_charging_energy = -min(-actions[offset+idx]*selected_charger['discharging_rate'] * (env.step_time / 60), req['current_soc']*car_type['capacity'])
+                    consumed_energy = max_charging_energy*selected_charger['discharging_efficiency']
+                    req['charging_status'].add(ChargingStatus.IN_DISCHARGING)
                 else:
-                    if (actions[offset+idx] > 0) and (ChargingStatus.PREEMPTIVE_HAS_CHARGED not in req['charging_status']):
-                        max_charging_energy = min(actions[offset+idx]*selected_charger['charging_rate']*selected_charger['charging_efficiency'] * (env.step_time / 60), (1-req['current_soc'])*car_type['capacity'])
-                        consumed_energy = max_charging_energy/selected_charger['charging_efficiency']
-                        req['charging_status'].add(ChargingStatus.IN_CHARGING)
-                    elif env.use_V2G and (actions[offset+idx] < 0) and (ChargingStatus.PREEMPTIVE_HAS_DISCHARGED not in req['charging_status']):
-                        max_charging_energy = -min(-actions[offset+idx]*selected_charger['discharging_rate'] * (env.step_time / 60), req['current_soc']*car_type['capacity'])
-                        consumed_energy = max_charging_energy*selected_charger['discharging_efficiency']
-                        req['charging_status'].add(ChargingStatus.IN_DISCHARGING)
-                    else:
-                        max_charging_energy = 0
-                        consumed_energy = 0
-                    p_charging[idx] = max_charging_energy
-                    consumed_energies[idx] = consumed_energy
+                    max_charging_energy = 0
+                    consumed_energy = 0
+                p_charging[idx] = max_charging_energy
+                consumed_energies[idx] = consumed_energy
 
-                    if (round(p_charging[idx]) == 0.):
-                        p_charging[idx] = 0.
-                        consumed_energies[idx] = 0.
+                if (round(p_charging[idx]) == 0.):
+                    p_charging[idx] = 0.
+                    consumed_energies[idx] = 0.
                 
                 if num in env.scenario[ts-1]:
                     prev_req = env.scenario[ts-1][num]
@@ -242,38 +230,20 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
                                 next_req = env.scenario[t][num]
                                 next_req['charging_status'].add(ChargingStatus.PREEMPTIVE_HAS_CHARGED)
             else:
-                if(is_discrete_charging):
-                    charging_rate = env.discrete_charging_rate[req['charger']][actions[offset+idx]]
-                    charging_eff = env.discrete_charging_eff[req['charger']][actions[offset+idx]]
-                    if (charging_rate >= 0):
-                        max_charging_energy = min(charging_rate*charging_eff * (env.step_time / 60), (1-req['current_soc'])*car_type['capacity'])
-                        consumed_energy = max_charging_energy/charging_eff
-                        req['charging_status'].add(ChargingStatus.IN_CHARGING)
-                    elif env.use_V2G:
-                        max_charging_energy = -min(-charging_rate * (env.step_time / 60), req['current_soc']*car_type['capacity'])
-                        consumed_energy = max_charging_energy*charging_eff
-                        req['charging_status'].add(ChargingStatus.IN_DISCHARGING)
-                    else:
-                        max_charging_energy = 0
-                        consumed_energy = 0
-                        req['charging_status'].add(ChargingStatus.IN_CHARGING)
-                    p_charging[idx] = max_charging_energy
-                    consumed_energies[idx] = consumed_energy
+                if (actions[offset+idx] >= 0):
+                    max_charging_energy = min(actions[offset+idx]*selected_charger['charging_rate']*selected_charger['charging_efficiency'] * (env.step_time / 60), (1-req['current_soc'])*car_type['capacity'])
+                    consumed_energy = max_charging_energy/selected_charger['charging_efficiency']
+                    req['charging_status'].add(ChargingStatus.IN_CHARGING)
+                elif env.use_V2G:
+                    max_charging_energy = -min(-actions[offset+idx]*selected_charger['discharging_rate'] * (env.step_time / 60), req['current_soc']*car_type['capacity'])
+                    consumed_energy = max_charging_energy*selected_charger['discharging_efficiency']
+                    req['charging_status'].add(ChargingStatus.IN_DISCHARGING)
                 else:
-                    if (actions[offset+idx] >= 0):
-                        max_charging_energy = min(actions[offset+idx]*selected_charger['charging_rate']*selected_charger['charging_efficiency'] * (env.step_time / 60), (1-req['current_soc'])*car_type['capacity'])
-                        consumed_energy = max_charging_energy/selected_charger['charging_efficiency']
-                        req['charging_status'].add(ChargingStatus.IN_CHARGING)
-                    elif env.use_V2G:
-                        max_charging_energy = -min(-actions[offset+idx]*selected_charger['discharging_rate'] * (env.step_time / 60), req['current_soc']*car_type['capacity'])
-                        consumed_energy = max_charging_energy*selected_charger['discharging_efficiency']
-                        req['charging_status'].add(ChargingStatus.IN_DISCHARGING)
-                    else:
-                        max_charging_energy = 0
-                        consumed_energy = 0
-                        req['charging_status'].add(ChargingStatus.IN_CHARGING)
-                    p_charging[idx] = max_charging_energy
-                    consumed_energies[idx] = consumed_energy
+                    max_charging_energy = 0
+                    consumed_energy = 0
+                    req['charging_status'].add(ChargingStatus.IN_CHARGING)
+                p_charging[idx] = max_charging_energy
+                consumed_energies[idx] = consumed_energy
             
             if (len(req['charging_status']) == 0):
                 req['charging_status'].add(ChargingStatus.UNKNOWN)
@@ -286,10 +256,9 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
 
         # Cost when total power reach the grid limit
         grid_penalty = 0
-        if env.has_grid_limit and grid_final > env.grid_limit * (env.step_time / 60):
-            #print("Grid limit exceeded at timestep", ts, '!!!!!')
+        if (env.schema['grid_limit'] > 0.) and grid_final > env.schema['grid_limit'] * (env.step_time / 60):
             grid_penalty = self.alpha_grid_limit
-            grid_final = env.grid_limit * (env.step_time / 60)
+            grid_final = env.schema['grid_limit'] * (env.step_time / 60)
             scale_factor = (grid_final + renewable_energy) / np.sum(p_charging)
             p_charging *= scale_factor
             price = self.alpha_price * grid_final * env.energy["price"][ts]
@@ -300,7 +269,7 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
         for idx, req_tuple in enumerate(current_plugged_list):
             num = req_tuple[self.scenario_keys.index('num')]
             req = env.scenario[ts][num]
-            car_type = env.ev_types[list(env.ev_config['considered_ev'])[req['type']]]
+            car_type = env.schema['EV_types'][list(env.schema['EV_config']['considered_ev'])[req['type']]]
             additional_soc = p_charging[idx] / car_type['capacity']
             new_soc = min(1., req['current_soc'] + additional_soc)
             env.scenario[ts+1][num]['current_soc'] = new_soc
@@ -385,3 +354,5 @@ class Simulate_Actions_FIFO(Simulate_Actions_Base):
         self._next_rejection_computation(env, ts)
 
         return reward, {key: self.history[key][-1] for key in self.history.keys() if(key != "waiting_time_ev") and (len(self.history[key]) > 0)}
+
+

@@ -252,3 +252,5 @@ class Matplotlib_Rendering(Rendering_Base):
             plt.pause(.25)
         else:
             plt.pause(10.)
+
+

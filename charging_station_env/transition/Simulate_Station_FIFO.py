@@ -8,10 +8,11 @@ class Simulate_Station_FIFO(Simulate_Station_Base):
     """
     Initializes the class.
     """
-    def __init__(self, nb_predict_timestep: int=3):
-        self.nb_predict_timestep = nb_predict_timestep
-        self.scenario_keys = None
+    def __init__(self, nb_predict_timestep: int=0):
         super().__init__()
+        self.nb_predict_timestep = nb_predict_timestep
+        self.epsilon = 1e-6
+        self.scenario_keys = None
 
     """
     This function is used to get the observation size of the environment.
@@ -23,7 +24,7 @@ class Simulate_Station_FIFO(Simulate_Station_Base):
         Size of the observation
     """
     def get_observation_size(self, env: Type[gym.Env]) -> int:
-        size = 8 + 6 * env.number_of_chargers
+        size = 2 + 2*abs(self.nb_predict_timestep) + 6 * env.number_of_chargers
         if not env.preemptive_charging:
             size += 2 * env.number_of_chargers
             if env.use_V2G:
@@ -43,7 +44,6 @@ class Simulate_Station_FIFO(Simulate_Station_Base):
     def __call__(self, env: Type[gym.Env]) -> np.ndarray:
         ts = env.timestep // env.step_time
         array_size = env.TIMESTEP_MAX / env.step_time
-        end_index = int(self.nb_predict_timestep+1-max(0, (ts+self.nb_predict_timestep+1 - array_size)))
         
         # Initialize scenario_keys only once at the beginning of the simulation
         if self.scenario_keys is None:
@@ -54,12 +54,39 @@ class Simulate_Station_FIFO(Simulate_Station_Base):
                 if self.scenario_keys is not None:
                     break
         
-        pv_production = np.array(env.energy["renewable"][ts:ts+self.nb_predict_timestep+1]) / env.energy["normalizers"]["renewable"]
-        price = np.array(env.energy["price"][ts:ts+self.nb_predict_timestep+1]) / env.energy["normalizers"]["price"]
-        # Add noise to predictions with error_range = 30% and z_value_95_confidence = 1.96
-        if end_index > 1:
-            price[1:end_index] = np.clip( np.random.normal(price[1:end_index], (.3 * price[1:end_index]) / 1.96, end_index-1), 0., 1.)
-            pv_production[1:end_index] = np.clip( np.random.normal(pv_production[1:end_index], (.3 * pv_production[1:end_index]) / 1.96, end_index-1), 0., 1.)
+        nb_supp_predict = 0
+        if(self.nb_predict_timestep > 0):
+            end_index = int(self.nb_predict_timestep+1-max(0, (ts+self.nb_predict_timestep+1 - array_size)))
+            pv_production = np.array(env.energy["renewable"][ts:ts+self.nb_predict_timestep+1]) / env.energy["normalizers"]["renewable"]
+            price = np.array(env.energy["price"][ts:ts+self.nb_predict_timestep+1]) / env.energy["normalizers"]["price"]
+            # Add noise to predictions with error_range = 30% and z_value_95_confidence = 1.96
+            nb_supp_predict = self.nb_predict_timestep+1 - end_index
+            if end_index > 1:
+                price[1:end_index] = np.clip( np.random.normal(price[1:end_index], (.3 * price[1:end_index]) / 1.96, end_index-1), 0., 1.)
+                pv_production[1:end_index] = np.clip( np.random.normal(pv_production[1:end_index], (.3 * pv_production[1:end_index]) / 1.96, end_index-1), 0., 1.)
+        elif(self.nb_predict_timestep < 0):
+            start_index = max(0, int(ts+self.nb_predict_timestep))
+            pv_production = np.array(env.energy["renewable"][start_index:ts+1]) / env.energy["normalizers"]["renewable"]
+            price = np.array(env.energy["price"][start_index:ts+1]) / env.energy["normalizers"]["price"]
+            nb_supp_predict = -int(ts+self.nb_predict_timestep) if int(ts+self.nb_predict_timestep) < 0 else 0
+            if nb_supp_predict > 0:
+                pv_production = np.concatenate((np.array([-1. for _ in range(nb_supp_predict)]), pv_production), axis=-1)
+                price = np.concatenate((np.array([-1. for _ in range(nb_supp_predict)]), price), axis=-1)
+            if(ts == len(env.energy["price"])):
+                pv_production = np.concatenate((pv_production, np.array([-1.])), axis=-1)
+                price = np.concatenate((price, np.array([-1.])), axis=-1)
+        else:
+            pv_production = np.array(env.energy["renewable"][ts:ts+1]) / env.energy["normalizers"]["renewable"]
+            price = np.array(env.energy["price"][ts:ts+1]) / env.energy["normalizers"]["price"]
+            if(ts == len(env.energy["price"])):
+                pv_production = np.concatenate((pv_production, np.array([-1.])), axis=-1)
+                price = np.concatenate((price, np.array([-1.])), axis=-1)
+        
+        if(len(pv_production) < self.nb_predict_timestep+1):
+            pv_production = np.concatenate((pv_production, np.array([-1. for _ in range(self.nb_predict_timestep+1-len(pv_production))])), axis=-1)
+        
+        if(len(price) < self.nb_predict_timestep+1):
+            price = np.concatenate((price, np.array([-1. for _ in range(self.nb_predict_timestep+1-len(price))])), axis=-1)
         
         preemptive_in_charging = np.array([])
         preemptive_has_charged = np.array([])
@@ -100,8 +127,10 @@ class Simulate_Station_FIFO(Simulate_Station_Base):
 
         observations = np.concatenate((price, pv_production, plugged_ev_soc, preemptive_in_charging, preemptive_has_charged, preemptive_in_discharging, preemptive_has_discharged,
                                        plugged_ev_duration, waiting_ev_soc, waiting_ev_duration, request_ev_soc, request_ev_duration), axis=None)
-
+        
+        assert len(observations) == self.get_observation_size(env), f"Observation size mismatch: {len(observations)} != {self.get_observation_size(env)}"
         assert not (-1. > observations).any() or (observations > 1.).any(), "Observation values out of range"
 
         return observations
+
 

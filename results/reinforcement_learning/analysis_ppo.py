@@ -46,9 +46,9 @@ if __name__ == "__main__":
     parser.add_argument("--current_folder", default='../../dataset/ev_scenario-50/', type=str)
     parser.add_argument("--eval_dir", default='./ev_scenario-50', type=str)
     parser.add_argument("--analysis_dir", default='./', type=str)
-    parser.add_argument("--module_aglorithm", default="mppo_customized_train_with_evaluation", type=str)
+    parser.add_argument("--module_algorithm", default="mppo_customized_train_with_evaluation", type=str)
     parser.add_argument("--algorithm", default="CustomMPPO", type=str)
-    parser.add_argument("--initializer", default="Initializer_FIFO")
+    parser.add_argument("--initializer", default="Initializer")
     parser.add_argument("--simulation", default="Simulate_Station_FIFO")
     parser.add_argument("--action", default="Simulate_Actions_FIFO")
     parser.add_argument("--energy", default="Energy_Initializer")
@@ -86,7 +86,7 @@ if __name__ == "__main__":
                            action_controller=getattr(getattr(__import__('charging_station_env'), 'action'), args.action)(**args.action_args),
                            )
 
-            Model_Class = getattr(__import__(args.module_aglorithm), args.algorithm)
+            Model_Class = getattr(__import__(args.module_algorithm), args.algorithm)
             model = Model_Class.load(model_filepath, env=env)
 
             for ep in range(args.episodes):

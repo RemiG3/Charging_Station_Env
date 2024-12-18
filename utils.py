@@ -61,6 +61,8 @@ def parse_dic_element(value):
 
 def parse_dic_args(values):
     values = str(values).replace("'", '').replace('"', '')
+    if(values.lower() == 'none'):
+        return {}
     dic_args = {}
     for value in values.split(','):
         dic_args.update(parse_dic_element(value))
@@ -73,3 +75,9 @@ def parse_list_int_with_None(value):
     if (',' in value):
         return [int(v) for v in value.split(',')]
     return [int(value)]
+
+def parse_str_with_None(value):
+    value = str(value).strip().replace("'", "").replace('"', '')
+    if value.lower() == 'none':
+        return None
+    return value

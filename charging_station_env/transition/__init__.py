@@ -2,3 +2,4 @@ from charging_station_env.transition.Constants import Status, ChargingStatus
 from charging_station_env.transition.Simulate_Station_Base import Simulate_Station_Base
 
 from charging_station_env.transition.Simulate_Station_FIFO import Simulate_Station_FIFO
+from charging_station_env.transition.Simulate_Station_FIFO_without_Price_Prediction import Simulate_Station_FIFO_without_Price_Prediction

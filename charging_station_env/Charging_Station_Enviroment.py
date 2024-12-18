@@ -35,25 +35,14 @@ class ChargingStationEnv(gym.Env):
         self.simulation_controller = simulation_controller
         self.action_controller = action_controller
         self.visualizer = visualizer
-        self.number_of_days = self.schema['number_of_days']
-        self.price_flag = self.schema['price_flag']
-        self.solar_flag = self.schema['solar_flag']
-        self.schema_name = self.schema['schema_name']
-        self.grid_limit = self.schema['grid_limit'] # -1 for unlimited power
-        self.has_grid_limit = (self.grid_limit > 0.)
+
+        self.chargers_config = self.schema['Chargers_config']
+        assert hasattr(self, 'chargers_config'), 'The schema should contain the chargers_config element'
         self.step_time = self.schema['step_time'] # in minutes
         self.TIMESTEP_MAX = 24*60
         self.algo_name = None
         self.id_save = None
         self.done = False
-        
-        # EV parameters
-        self.ev_types = self.schema['Types_of_EV']
-        self.ev_config = self.schema['EV_config']
-        
-        # Charger types
-        self.chargers_types = self.schema['Types_of_chargers']
-        self.chargers_config = self.schema['Chargers_config']
         self.number_of_chargers = len(self.chargers_config['list_chargers'])
         self.preemptive_charging = bool(self.chargers_config['preemptive'])
         self.use_V2G = self.chargers_config['use_V2G']
@@ -66,67 +55,23 @@ class ChargingStationEnv(gym.Env):
             self.action_space = spaces.Box(
                 low=-1 if self.use_V2G else 0,
                 high=1, shape=(self.number_of_chargers*2,),
-                dtype=np.float32
+                dtype=float #np.float32
             )
         elif (self.chargers_config['charging_mode'] == 'constant'):
-            if self.use_V2G:
-                print('WARNING: V2G will be ignored since the charging mode is constant!')
-            # Note: No V2G possible for constant charging mode
-            self.action_space = spaces.MultiBinary(self.number_of_chargers*2)
+            pass
         elif (self.chargers_config['charging_mode'] == 'discrete'):
-            list_len_charging = []
-            self.discrete_charging_rate = [[] for _ in range(self.number_of_chargers)]
-            self.discrete_charging_eff = [[] for _ in range(self.number_of_chargers)]
-            for charger in range(self.number_of_chargers):
-                charging_rate = self.chargers_types[self.chargers_config['list_chargers'][charger]]['charging_rate']
-                if isinstance(charging_rate, list):
-                    charging_rate = charging_rate.copy()
-                    list_len_charging.append( len(charging_rate) )
-                else:
-                    charging_rate = [charging_rate]
-                    list_len_charging.append( 1 )
-                if 0 not in charging_rate:
-                    charging_rate.append( 0 )
-                    list_len_charging[-1] += 1
-                self.discrete_charging_rate[charger] = charging_rate
-
-                charging_eff = self.chargers_types[self.chargers_config['list_chargers'][charger]]['charging_efficiency']
-                if not isinstance(charging_eff, list):
-                    charging_eff = [charging_eff for _ in range(len(charging_rate))]
-                else:
-                    charging_eff = charging_eff.copy()
-                self.discrete_charging_eff[charger] = charging_eff
-                
-                if self.use_V2G:
-                    discharging_rate = self.chargers_types[self.chargers_config['list_chargers'][charger]]['discharging_rate']
-                    if isinstance(discharging_rate, list):
-                        discharging_rate = discharging_rate.copy()
-                        list_len_charging[-1] += len(discharging_rate)
-                    else:
-                        discharging_rate = [discharging_rate]
-                        list_len_charging[-1] += 1
-                    self.discrete_charging_rate[charger] = self.discrete_charging_rate[charger] + [-rate for rate in discharging_rate]
-
-                    discharging_eff = self.chargers_types[self.chargers_config['list_chargers'][charger]]['discharging_efficiency']
-                    if not isinstance(discharging_eff, list):
-                        discharging_eff = [discharging_eff for _ in range(len(discharging_rate))]
-                    else:
-                        discharging_eff = discharging_eff.copy()
-                    self.discrete_charging_eff[charger] = self.discrete_charging_eff[charger] + [eff for eff in discharging_eff]
-                
-                assert len(self.discrete_charging_rate[charger]) == len(self.discrete_charging_eff[charger])
-
-            # Actions: Accept or reject EV (shape: number_of_chargers) + Charging rate (shape: number_of_chargers)
-            self.action_space = spaces.MultiDiscrete([2 for _ in range(self.number_of_chargers)] + list_len_charging)
+            pass
         else:
             raise Exception(f'charging_mode: "{self.chargers_config["charging_mode"]}" not recognized')
         
+        self.action_space = self.action_controller.get_action_space(self)
+
         low = np.array(-np.ones(self.simulation_controller.get_observation_size(self)), dtype=np.float32)
         high = np.array(np.ones(self.simulation_controller.get_observation_size(self)), dtype=np.float32)
         self.observation_space = spaces.Box(
             low=low,
             high=high,
-            dtype=np.float64
+            dtype=float #np.float64
             #dtype=np.float32 # PATCH: Error with check_env(env): AssertionError: The observation returned by the `reset()` method does not match the given observation space
         )
 
@@ -193,7 +138,7 @@ class ChargingStationEnv(gym.Env):
         for time_requests in charging_requests:
             for req in time_requests:
                 if(len(self.scenario[req['arr']].keys()) < self.number_of_chargers):
-                    self.scenario[req['arr']][n] = {'num': n, 'arrival': req['arr'], 'departure': req['dep'], 'initial_soc': req['soc'], 'current_soc': req['soc'], 'status': Status.ARRIVED, 'charging_status': {ChargingStatus.UNKNOWN}, 'charger': -1, 'type': req['type']}
+                    self.scenario[req['arr']][n] = {'num': n, 'arrival': req['arr'], 'departure': req['dep'], 'initial_soc': req['soc'], 'current_soc': req['soc'], 'desired_soc': req['soc_d'] if('soc_d' in req) else 0.8, 'status': Status.ARRIVED, 'charging_status': {ChargingStatus.UNKNOWN}, 'charger': -1, 'type': req['type']}
                     n += 1
         
         return self.get_obs(), {'energy': self.energy,
@@ -229,6 +174,7 @@ class ChargingStationEnv(gym.Env):
     """
     def seed(self, seed: Optional[int]=None) -> List[int]:
         _, seed = seeding.np_random(seed)
+        seed = max(0, min(seed, 2**32-1))
         random.seed(seed)
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -244,4 +190,5 @@ class ChargingStationEnv(gym.Env):
     """
     def close(self) -> int:
         return 0
-        
+
+

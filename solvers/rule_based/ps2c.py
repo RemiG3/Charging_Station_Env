@@ -9,7 +9,7 @@ class PrioritySocCentricCharging:
     def select_action(self, env, states):
         action = [0 for _ in range(2*env.number_of_chargers)]
         ts = env.timestep // env.step_time
-        list_ev_types = list(env.ev_config['considered_ev'])
+        list_ev_types = list(env.schema['EV_config']['considered_ev'])
 
         if(self.scenario_keys is None):
             for time_requests in env.scenario:
@@ -38,10 +38,10 @@ class PrioritySocCentricCharging:
         current_requests_list = sorted([list(req.values()) for req in env.scenario[ts].values() if(req['status'] == Status.ARRIVED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('current_soc')]))
         for idx, req_tuple in enumerate(current_requests_list):
             req_soc = req_tuple[self.scenario_keys.index('current_soc')]
-            remaining_duration = req_tuple[self.scenario_keys.index('departure')] - min(chargers_release_dict[f"charger {chargers_release_dict['next_charger_available']}"], req_tuple[self.scenario_keys.index('arrival')])
-            selected_charger = env.chargers_types[env.chargers_config["list_chargers"][0]]              # Note: We assume that all chargers have the same charging rate and efficiency
+            remaining_duration = req_tuple[self.scenario_keys.index('departure')] - max(chargers_release_dict[f"charger {chargers_release_dict['next_charger_available']}"], req_tuple[self.scenario_keys.index('arrival')])
+            selected_charger = env.schema['Charger_types'][env.chargers_config["list_chargers"][0]]              # Note: We assume that all chargers have the same charging rate and efficiency
             charger_power = selected_charger['charging_rate']*selected_charger['charging_efficiency']
-            if (remaining_duration >= ((0.8 - req_soc) * env.ev_types[list_ev_types[req_tuple[self.scenario_keys.index('type')]]]['capacity']) / charger_power):
+            if (remaining_duration >= ((0.8 - req_soc) * env.schema['EV_types'][list_ev_types[req_tuple[self.scenario_keys.index('type')]]]['capacity']) / charger_power):
                 action[idx] = 1
                 chargers_release_dict[f"charger {chargers_release_dict['next_charger_available']}"] = req_tuple[self.scenario_keys.index('departure')]
                 chargers_departure = [chargers_release_dict[f'charger {charger}'] for charger in range(env.number_of_chargers)]
@@ -56,11 +56,11 @@ class PrioritySocCentricCharging:
         offset = env.number_of_chargers
         for idx, req_tuple in enumerate(current_plugged_list):
             if (req_tuple[self.scenario_keys.index('current_soc')] < .8):
-                car_type = env.ev_types[list_ev_types[req_tuple[self.scenario_keys.index('type')]]]
-                selected_charger = env.chargers_types[env.chargers_config["list_chargers"][req_tuple[self.scenario_keys.index('charger')]]]
+                car_type = env.schema['EV_types'][list_ev_types[req_tuple[self.scenario_keys.index('type')]]]
+                selected_charger = env.schema['Charger_types'][env.chargers_config["list_chargers"][req_tuple[self.scenario_keys.index('charger')]]]
                 power_demand = min(selected_charger['charging_rate']*selected_charger['charging_efficiency'], (1-req_tuple[self.scenario_keys.index('current_soc')])*car_type['capacity'] / (env.step_time / 60))
                 power_demand = power_demand/selected_charger['charging_efficiency']
-                if (power_demand > self.epsilon) and (cumul_power_demand+power_demand < env.grid_limit):
+                if (power_demand > self.epsilon) and (cumul_power_demand+power_demand < env.schema['grid_limit']):
                     action[offset+idx] = 1
                     cumul_power_demand += power_demand
                 else:
@@ -70,16 +70,13 @@ class PrioritySocCentricCharging:
         
         if (cumul_power_demand < 0):
             for idx, req_tuple in enumerate(current_plugged_list):
-                car_type = env.ev_types[list_ev_types[req_tuple[self.scenario_keys.index('type')]]]
-                selected_charger = env.chargers_types[env.chargers_config["list_chargers"][req_tuple[self.scenario_keys.index('charger')]]]
+                car_type = env.schema['EV_types'][list_ev_types[req_tuple[self.scenario_keys.index('type')]]]
+                selected_charger = env.schema['Charger_types'][env.chargers_config["list_chargers"][req_tuple[self.scenario_keys.index('charger')]]]
                 power_demand = min(selected_charger['charging_rate']*selected_charger['charging_efficiency'], (1-req_tuple[self.scenario_keys.index('current_soc')])*car_type['capacity'] / (env.step_time / 60))
                 power_demand = power_demand/selected_charger['charging_efficiency']
                 if (power_demand > self.epsilon) and (cumul_power_demand+power_demand < 0) and (action[offset+idx] == 0):
                     action[offset+idx] = 1
                     cumul_power_demand += power_demand
-        
-        #print('states', states)
-        #print('action', action)
 
         return action
 

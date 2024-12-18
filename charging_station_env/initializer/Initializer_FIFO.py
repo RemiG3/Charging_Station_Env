@@ -78,7 +78,7 @@ class Initializer_FIFO(Initializer_Base):
         number_of_vehicles = random.randint(self.nb_ev_min_range, self.nb_ev_max_range) if (self.number_of_vehicles is None) else self.number_of_vehicles
         
         chargers_ev_compatibilities = {}
-        for charger_type in env.chargers_types:
+        for charger_type in env.charger_types:
             chargers_ev_compatibilities[charger_type] = []
             for ev_num, ev_type in enumerate(env.ev_config['considered_ev']):
                 if charger_type in env.ev_types[ev_type]['chargers_type_compatibilities']:
@@ -125,7 +125,7 @@ class Initializer_FIFO(Initializer_Base):
         initial_socs = self.min_soc + norm_energy * (self.max_soc - self.min_soc)
 
         # Parking duration generation
-        charger_type = env.chargers_types[env.chargers_config['list_chargers'][0]]
+        charger_type = env.charger_types[env.chargers_config['list_chargers'][0]]
         p = charger_type['charging_rate'] * charger_type['charging_efficiency']
         min_dur = (self.b_max * (.8 - initial_socs)) / p * (60 // step_time)
         rvs = np.random.beta(self.alpha_param, self.beta_param, len(min_dur))
@@ -144,11 +144,11 @@ class Initializer_FIFO(Initializer_Base):
         arrivals_requests = np.array(arrivals)
 
         # Future consideration: To weight the sum for random choice with EV compatibilities
-        ev_types_requests = [random.choice(list(range(len(env.ev_config['considered_ev'])))) for _ in range(len(arrivals))]
+        ev_types_requests = [random.choice(list(range(len(env.schema['EV_config']['considered_ev'])))) for _ in range(len(arrivals))]
         
         array_size = timestep_max//env.step_time+1
         charging_requests = [[] for _ in range(array_size)]
         for soc, arr, dep, type in zip(initial_socs, arrivals_requests, departures_requests, ev_types_requests):
-            charging_requests[arr].append({'soc': soc, 'arr': arr, 'dep': dep, 'type': type})
+            charging_requests[arr].append({'soc': soc, 'soc_d': 0.8, 'arr': arr, 'dep': dep, 'type': type})
         
         return charging_requests

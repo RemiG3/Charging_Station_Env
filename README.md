@@ -1,7 +1,7 @@
 # Charging Station Environment
 Charging_Station_Env is an open-source OpenAI Gymnasium environment to simulate the Electric Vehicle Charging Scheduling problem with admission decision control and photovoltaic panels production.
 This environment is design for benchmarking online algorithms, such as reinforcement learning algorithms, rolling horizon methods, and rule-based approaches.
-This work also includes comparison of online methods against the (optimal) offline solutions using mixed-integer linear programming models.
+This work also includes comparison of online methods against the (optimal) offline solutions using mixed-integer linear programming model.
 
 
 ## Installation
@@ -40,99 +40,61 @@ python rb_main.py --visualizer Matplotlib_Rendering
 
     Charging_Station_Env
 
-        ├── setup.py
-
         ├── env.yml
+
+        ├── Readme.md
 
         ├── requirements.txt
 
         ├── schema.json
 
-        ├── Readme.md
+        ├── setup.py
 
         ├── utils.py
 
         ├── charging_station_env
             ├── __init__.py
             ├── Charging_Station_Enviroment.py
-            ├── visualizer
-                ├── __init__.py
-                ├── Matplotlib_Rendering.py
-                ├── Rendering_Base.py
-                └── Console_Rendering.py
             ├── action
-                ├── Simulate_Actions_FIFO.py
-                ├── Simulate_Actions_Base.py
-                └── __init__.py
-            └── initializer
-                ├── Initializer_FIFO.py
-                ├── Initializer_Base.py
-                ├── Energy_Initializer.py
                 ├── __init__.py
+                ├── Simulate_Actions_Base.py
+                └── Simulate_Actions_FIFO.py
+            ├── initializer
+                ├── __init__.py
+                ├── Energy_Initializer.py
                 ├── Energy_Initializer_Base.py
-                └── synthetic_data_generator
-                    ├── SDG Model (AC,poisson_fit)
-                    ├── generate_sample.py
-                    ├── SDG_sample_generate.py
-                    ├── modeling
-                        └── stat
-                            ├── models.py
-                            ├── exponential_process.py
-                            ├── mixturemodels.py
-                            ├── poisson_process.py
-                            ├── poles_selector.py
-                            └── __init__.py
-                    └── handles
-                        ├── data_hand.py
-                        └── __init__.py
+                ├── Initializer_Base.py
+                ├── Initializer_FIFO.py
+                ├── Initializer_General.py
                 ├── pv_production_data
                     └── data.csv
-            └── transition
+                └── synthetic_data_generator
+                    ├── generate_sample.py
+                    ├── SDG_sample_generate.py
+                    ├── SDG Model (AC,poisson_fit)
+                    ├── handles
+                        ├── __init__.py
+                        └── data_hand.py
+                    └── modeling
+                        └── stat
+                            ├── __init__.py
+                            ├── exponential_process.py
+                            ├── mixturemodels.py
+                            ├── models.py
+                            ├── poisson_process.py
+                            └── poles_selector.py
+            ├── transition
                 ├── __init__.py
+                ├── Constants.py
                 ├── Simulate_Station_Base.py
                 ├── Simulate_Station_FIFO.py
-                └── Constants.py
-
-        ├── solvers
-            ├── reinforcement_learning
-                ├── mppo_customized_train_with_evaluation.py
-                ├── ppo_customized_train_with_evaluation.py
-                ├── utils_rl.py
-                ├── display_trained_models.py
-                └── CustomActorCriticPolicies.py
-            ├── interactive
-                ├── automatic_interaction.py
-                ├── main.py
-                └── scenario_all_1.test
-            ├── offline
-                ├── 1-Phase
-                    ├── main.cpp
-                    ├── CMakeLists.txt
-                    └── cmake
-                        └── FindCPLEX.cmake
-                ├── 2-Phase
-                    ├── main.cpp
-                    ├── CMakeLists.txt
-                    └── cmake
-                        └── FindCPLEX.cmake
-                └── 3-Phase
-                    ├── main.cpp
-                    ├── CMakeLists.txt
-                    └── cmake
-                        └── FindCPLEX.cmake
-            ├── rule_based
-                ├── baseline.py
-                ├── ps2c.py
-                └── rb_main.py
-            └── rolling
-                ├── lib_online_rolling.so
-                ├── rolling_main.py
-                └── 1-Phase rolling
-                    ├── online_cplex.cpp
-                    ├── online_cplex.h
-                    ├── CMakeLists.txt
-                    └── cmake
-                        └── FindCPLEX.cmake
+                ├── Simulate_Station_FIFO_without_Price_Prediction.py
+                └── xgboost_pv_model.json
+            └── visualizer
+                ├── __init__.py
+                ├── Console_Rendering.py
+                ├── Matplotlib_Rendering.py
+                └── Rendering_Base.py
 
         ├── dataset
             ├── ev_scenario-50
@@ -142,19 +104,49 @@ python rb_main.py --visualizer Matplotlib_Rendering
             ├── ev_scenario-120
             └── ev_scenario-150
 
-        └── results
+        ├── results
             ├── Input Data Visualization.ipynb
             ├── Results Visualization.ipynb
-            ├── rolling
-                └── analysis_rolling.py
-            ├── rule_based
-                └── analysis_rb.py
+            ├── offline
+                ├── analysis_offline.py
+                ├── solution_checker.py
+                └── utils_offline.py
             ├── reinforcement_learning
                 └── analysis_ppo.py
-            └── offline
-                ├── analysis_offline.py
-                ├── utils_offline.py
-                └── solution_checker.py
+            ├── rolling
+                └── analysis_rolling.py
+            └── rule_based
+                └── analysis_rb.py
+
+        └── solvers
+            ├── interactive
+                ├── automatic_interaction.py
+                ├── main.py
+                └── scenario_all_1.test
+            ├── offline
+                ├── CMakeLists.txt
+                ├── main.cpp
+                └── cmake
+                    └── FindGUROBI.cmake
+            ├── reinforcement_learning
+                ├── display_trained_models.py
+                ├── mppo_train_with_evaluation.py
+                ├── mppo_with_postprocess_train_with_evaluation.py
+                ├── ppo_customized_train_with_evaluation.py
+                └── utils_rl.py
+            ├── rolling
+                ├── lib_online_rolling.so
+                ├── rolling_main.py
+                └── 1-Phase rolling
+                    ├── CMakeLists.txt
+                    ├── online_gurobi.cpp
+                    ├── online_gurobi.h
+                    └── cmake
+                        └── FindGUROBI.cmake
+            └── rule_based
+                ├── baseline.py
+                ├── ps2c.py
+                └── rb_main.py
 
 
 ## Customized Environment
@@ -170,24 +162,24 @@ Customizable configuration file:
     "solar_flag": 1,
     "grid_limit": 75.0,
     
-    "Types_of_EV": {
+    "EV_types": {
         "classic": {
             "capacity": 45,
-            "chargers_type_compatibilities": ["low", "medium", "high"]
-        },
+            "chargers_type_compatibilities": ["low"]
+        }
     },
     
     "EV_config": {
         "considered_ev": ["classic"]
     },
     
-    "Types_of_chargers": {
+    "Charger_types": {
         "low": {
             "charging_rate": 11,
             "discharging_rate": 11,
             "charging_efficiency": 0.91,
             "discharging_efficiency": 0.91
-        },
+        }
     },
     
     "Chargers_config": {

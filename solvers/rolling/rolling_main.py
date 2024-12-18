@@ -14,8 +14,8 @@ import numpy as np
 class Result(ctypes.Structure):
     _fields_ = [("soc_jf", POINTER(c_float)),
                 ("e_t", POINTER(c_float)),
-                ("x_jt", POINTER(POINTER(c_bool))),
-                ("y_j", POINTER(c_bool)),
+                ("x_ijt", POINTER(POINTER(POINTER(c_bool)))),
+                ("y_ij", POINTER(POINTER(c_bool))),
                 ("u_j", POINTER(c_bool)),
                 ("solved", c_bool)]
 
@@ -36,6 +36,77 @@ class Rolling:
         self.simulation_controller_class_name = simulation_controller_class_name
         self.scenario_keys = None
         self.reset()
+    
+    def __call_solving(self):
+        nb = len(self.ev_list)
+
+        BatteryArray = c_float * nb
+        b_ptr = ctypes.cast(BatteryArray(*[self.b[0] for _ in range(nb)]), POINTER(c_float))
+        
+        DepartureArray = c_int * nb
+        departure_ptr = ctypes.cast(DepartureArray(*[self.d_j[req['num']] for req in self.ev_list]), POINTER(c_int))
+        
+        ArrivalArray = c_int * nb
+        arrival_ptr = ctypes.cast(ArrivalArray(*[self.r_j[req['num']] for req in self.ev_list]), POINTER(c_int))
+        
+        Soc0Array = c_float * nb
+        soc0_ptr = ctypes.cast(Soc0Array(*[self.soc_0[req['num']] for req in self.ev_list]), POINTER(c_float))
+        
+        PvArray = c_float * self.T
+        pv_ptr = ctypes.cast(PvArray(*self.pv_t), POINTER(c_float))
+        
+        PrArray = c_float * self.T
+        pr_ptr = ctypes.cast(PrArray(*self.pr_t), POINTER(c_float))
+        
+        XijtArray = c_bool * self.T
+        XijArray = POINTER(c_bool) * nb
+        XiArray = POINTER(POINTER(c_bool)) * self.m
+        xijt_ptr = ctypes.cast(
+            XiArray(
+                *[XijArray(
+                    *[XijtArray(*self.x_ijt[i][req['num']]) for req in self.ev_list]
+                ) for i in range(self.m)]
+            ), 
+            POINTER(POINTER(POINTER(c_bool)))
+        )
+        
+        SocjfArray = c_float * nb
+        socjf_ptr = ctypes.cast(SocjfArray(*[self.soc_jf[req['num']] for req in self.ev_list]), POINTER(c_float))
+        
+        EtArray = c_float * self.T
+        et_ptr = ctypes.cast(EtArray(*self.e_t), POINTER(c_float))
+        
+        YijArray = c_bool * nb
+        YiArray = POINTER(c_bool) * self.m
+        yij_ptr = ctypes.cast(
+            YiArray(
+                *[YijArray(*[self.y_ij[i][req['num']] for req in self.ev_list]) for i in range(self.m)]
+            ),
+            POINTER(POINTER(c_bool))
+        )
+        
+        UjArray = c_bool * nb
+        uj_ptr = ctypes.cast(UjArray(*[self.u_j[req['num']] for req in self.ev_list]), POINTER(c_bool))
+
+        assignedEVArray = c_bool * nb
+        asgnev_ptr = ctypes.cast(assignedEVArray(*[req['assigned'] for req in self.ev_list]), POINTER(c_bool))
+
+        pastEVArray = c_bool * nb
+        pastev_ptr = ctypes.cast(pastEVArray(*[req['past'] for req in self.ev_list]), POINTER(c_bool))
+        
+        result_ptr = libmodel.solve(1, 10, 100, self.ts, self.T, self.m, 0, 0, nb, self.w, self.eta, self.w_G, self.tau, b_ptr, departure_ptr, arrival_ptr, soc0_ptr, pv_ptr, pr_ptr, xijt_ptr, socjf_ptr, yij_ptr, et_ptr, uj_ptr, asgnev_ptr, pastev_ptr)
+        res = result_ptr.contents
+        new_soc_jf = [res.soc_jf[j] for j in range(nb)]
+        new_e_t = [res.e_t[t] for t in range(T)]
+        new_x_ijt = [[[res.x_ijt[i][j][t] for t in range(T)] for j in range(nb)] for i in range(self.m)]
+        new_y_ij = [[res.y_ij[i][j] for j in range(nb)] for i in range(self.m)]
+        new_u_j = [res.u_j[j] for j in range(nb)]
+        
+        assert res.solved, "No solution found by the solver!"
+        libmodel.destroy_result(result_ptr, self.m, nb, self.T)
+
+        return new_y_ij, new_x_ijt, new_soc_jf, new_u_j, new_e_t
+
 
     def predict(self, state):
         if(self.scenario_keys is None):
@@ -46,35 +117,33 @@ class Rolling:
                 if self.scenario_keys is not None:
                     break
         
-        current_requests_list = sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.ARRIVED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('current_soc')]))
-        current_rejected_list = sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.REJECTED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('current_soc')]))
-        current_waiting_list = sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.WAITING)], key=lambda e: (e[self.scenario_keys.index('arrival')], e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('current_soc')]))
-        current_plugged_list = sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.ACCEPTED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('arrival')], e[self.scenario_keys.index('current_soc')]))
+        current_rejected_list = sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.REJECTED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('initial_soc')]))
+        current_requests_list = sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.ARRIVED) or (req['status'] == Status.REJECTED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('initial_soc')]))
+        current_waiting_list = sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.WAITING)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('arrival')], e[self.scenario_keys.index('initial_soc')]))
+        current_plugged_list = sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.ACCEPTED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('arrival')], e[self.scenario_keys.index('initial_soc')]))
+        nb_predict = self.env.simulation_controller.nb_predict_timestep
 
-        ######
-        # For Simulate_Station_FIFO:
-        # States: [pr_t, pr_t+1, pr_t+2, pr_t+3, sp_t, sp_t+1, sp_t+2, sp_t+3, soc¹, soc², soc³, soc⁴, soc⁵, soc⁶, soc⁷, soc⁸, soc⁹, soc¹⁰, dur¹, dur², dur³, dur⁴, dur⁵, dur⁶, dur⁷, dur⁸, dur⁹, dur¹⁰, soc_wq¹, soc_wq², soc_wq³, soc_wq⁴, soc_wq⁵, soc_wq⁶, soc_wq⁷, soc_wq⁸, soc_wq⁹, soc_wq¹⁰, dur_wq¹, dur_wq², dur_wq³, dur_wq⁴, dur_wq⁵, dur_wq⁶, dur_wq⁷, dur_wq⁸, dur_wq⁹, dur_wq¹⁰, soc_cr¹, soc_cr², soc_cr³, soc_cr⁴, soc_cr⁵, soc_cr⁶, soc_cr⁷, soc_cr⁸, soc_cr⁹, soc_cr¹⁰, dur_cr¹, dur_cr², dur_cr³, dur_cr⁴, dur_cr⁵, dur_cr⁶, dur_cr⁷, dur_cr⁸, dur_cr⁹, dur_cr¹⁰]
-        # Index:  [ 0  ,   1   ,   2   ,   3   ,  4  ,   5   ,   6   ,   7   ,  8  ,  9  ,  10 ,  11 ,  12 ,  13 ,  14 ,  15 ,  16 ,  17  ,  18 ,  19 ,  20 ,  21 ,  22 ,  23 ,  24 ,  25 ,  26 ,  27  ,    28  ,    29  ,    30  ,    31  ,    32  ,    33  ,    34  ,    35  ,    36  ,    37   ,   38   ,   39   ,   40   ,   41   ,   42   ,   43   ,   44   ,   45   ,   46   ,    47   ,   48   ,   49   ,   50   ,   51   ,   52   ,   53   ,   54   ,   55   ,   56   ,    57   ,   58   ,   59   ,   60   ,   61   ,   62   ,   63   ,   64   ,   65   ,   66   ,    67   ]
-        ######
-        assert (self.simulation_controller_class_name == 'Simulate_Station_FIFO')
-        self.pr_t[self.ts:min(self.T-1, self.ts+4)] = [pr * self.env.energy["normalizers"]["price"] for pr in state[0:min(self.T-1, self.ts+4)-self.ts]]
-        if(self.pr_t[0] > self.max_pr_known):
-            self.max_pr_known = self.pr_t[0]
-        self.pr_t[self.ts+4:] = [self.max_pr_known for _ in range(self.T-(self.ts+4))]
-
-        self.pv_t[self.ts:min(self.T-1, self.ts+4)] = [sp * self.env.energy["normalizers"]["renewable"] for sp in state[4:4+min(self.T-1, self.ts+4)-self.ts]]
-        self.pv_t[self.ts+4:] = [0 for _ in range(self.T-(self.ts+4))]
-
-        for req_tuple in current_requests_list+current_rejected_list:
+        self.pr_t[self.ts] = state[0] * self.env.energy["normalizers"]["price"]
+        self.pv_t[self.ts] = state[1] * self.env.energy["normalizers"]["renewable"]
+        if(self.pr_t[self.ts] > self.max_pr_known):
+            self.max_pr_known = self.pr_t[self.ts]
+        #self.pv_t[self.ts:min(self.T-1, self.ts+nb_predict+1)] = [sp * self.env.energy["normalizers"]["renewable"] for sp in state[1:1+min(self.T-1, self.ts+nb_predict+1)-self.ts]]
+        
+        for req_tuple in current_requests_list:#+current_rejected_list:
             num = req_tuple[self.scenario_keys.index('num')]
             self.soc_0[num] = req_tuple[self.scenario_keys.index('initial_soc')]
             self.r_j[num] = req_tuple[self.scenario_keys.index('arrival')]
             self.d_j[num] = req_tuple[self.scenario_keys.index('departure')]
             
-            self.x_jt[num] = [False for _ in range(self.T)]
             self.soc_jf[num] = self.soc_0[num]
-            self.y_j[num] = False
             self.u_j[num] = False
+            self.ev_list.append({'num': num, 'charger': -1, 'arrival': self.r_j[num], 'departure': self.d_j[num], 'initial_soc': self.soc_0[num], 'past': False, 'assigned': False})
+            if(req_tuple[self.scenario_keys.index('status')] == Status.REJECTED):
+                self.ev_list[-1].update({'past': True, 'assigned': True})
+            
+            for i in range(self.m):
+                self.x_ijt[i][num] = [False for _ in range(self.T)]
+                self.y_ij[i][num] = False
         
         for req_tuple in current_rejected_list:
             self.past_rejected_ev[req_tuple[self.scenario_keys.index('num')]] = {'charger': -1, 'arrival': req_tuple[self.scenario_keys.index('arrival')], 'departure': req_tuple[self.scenario_keys.index('departure')]}
@@ -83,144 +152,113 @@ class Rolling:
         for req_tuple in current_plugged_list:
             plugged_ev[req_tuple[self.scenario_keys.index('num')]] = {'charger': req_tuple[self.scenario_keys.index('charger')], 'arrival': req_tuple[self.scenario_keys.index('arrival')], 'departure': req_tuple[self.scenario_keys.index('departure')]}
         
-        all_ev = {}
-        all_ev.update(self.past_plugged_ev.copy())
-        all_ev.update(self.past_rejected_ev.copy())
-        all_ev.update(plugged_ev)
-        all_ev_num_list = [num for num in self.past_plugged_ev] +\
-                          [num for num in self.past_rejected_ev] +\
-                          [req_tuple[self.scenario_keys.index('num')] for req_tuple in current_plugged_list] #sorted([list(req.values()) for req in env.scenario[self.ts].values() if(req['status'] == Status.ACCEPTED)], key=lambda e: (e[self.scenario_keys.index('departure')], e[self.scenario_keys.index('arrival')], e[self.scenario_keys.index('current_soc')]))]
-
         chargers_departure = [0 for _ in range(self.m)]
-        for num in all_ev_num_list:
-            if(all_ev[num]['charger'] != -1) and (all_ev[num]['departure'] > chargers_departure[all_ev[num]['charger']]):
-                chargers_departure[all_ev[num]['charger']] = all_ev[num]['departure']
+        for req_tuple in current_plugged_list:
+            num = req_tuple[self.scenario_keys.index('num')]
+            charger = req_tuple[self.scenario_keys.index('charger')]
+            chargers_departure[charger] = self.d_j[num]
 
         waiting_ev = {}
         for req_tuple in current_waiting_list:
             num = req_tuple[self.scenario_keys.index('num')]
-            charger = chargers_departure.index(min(chargers_departure))
+            charger = env.scenario[self.d_j[num]-1][num]['charger']
             chargers_departure[charger] = self.d_j[num]
             waiting_ev[num] = {'charger': charger, 'arrival': self.r_j[num], 'departure': self.d_j[num]}
-        
+
         request_ev = {}
         for req_tuple in current_requests_list:
+            if((req_tuple[self.scenario_keys.index('status')] == Status.REJECTED)):
+                continue
             num = req_tuple[self.scenario_keys.index('num')]
-            charger = chargers_departure.index(min(chargers_departure))
-            chargers_departure[charger] = self.d_j[num]
-            request_ev[num] = {'charger': charger, 'arrival': self.r_j[num], 'departure': self.d_j[num]}
+            request_ev[num] = {'charger': -1, 'arrival': self.r_j[num], 'departure': self.d_j[num]}
 
-        all_ev.update(waiting_ev)
-        all_ev.update(request_ev)
-        all_ev_num_list = all_ev_num_list +\
-                          [req_tuple[self.scenario_keys.index('num')] for req_tuple in current_waiting_list] +\
-                          [req_tuple[self.scenario_keys.index('num')] for req_tuple in current_requests_list]
-        
-        nb_past = len(self.past_plugged_ev) + len(self.past_rejected_ev)
-        nb_ev_assigned = len(plugged_ev) + len(waiting_ev)
-        nb_new_requests = len(request_ev)
-        nb = nb_past + nb_ev_assigned + nb_new_requests
-
-        assert nb == len(all_ev_num_list), f'nb={nb} != len(all_ev_num_list)={len(all_ev_num_list)}'
-
-        self.z_jk = {num1: {num2: False for num2 in all_ev_num_list} for num1 in all_ev_num_list}
-        for num1 in all_ev_num_list:
-            for num2 in all_ev_num_list:
-                if(all_ev[num1]['charger'] != -1) and (all_ev[num2]['charger'] != -1) and (num1 != num2) and (all_ev[num1]['charger'] == all_ev[num2]['charger']) and (all_ev[num2]['departure'] <= all_ev[num1]['departure']) and (all_ev[num1]['arrival'] < all_ev[num2]['departure']):
-                    self.z_jk[num1][num2] = True
-        
-        
-        BatteryArray = c_float * nb
-        b_ptr = ctypes.cast(BatteryArray(*[self.b[0] for _ in range(nb)]), POINTER(c_float))
-        
-        DepartureArray = c_int * nb
-        departure_ptr = ctypes.cast(DepartureArray(*[self.d_j[num] for num in all_ev_num_list]), POINTER(c_int))
-        
-        ArrivalArray = c_int * nb
-        arrival_ptr = ctypes.cast(ArrivalArray(*[self.r_j[num] for num in all_ev_num_list]), POINTER(c_int))
-        
-        Soc0Array = c_float * nb
-        soc0_ptr = ctypes.cast(Soc0Array(*[self.soc_0[num] for num in all_ev_num_list]), POINTER(c_float))
-        
-        PvArray = c_float * self.T
-        pv_ptr = ctypes.cast(PvArray(*self.pv_t), POINTER(c_float))
-        
-        PrArray = c_float * self.T
-        pr_ptr = ctypes.cast(PrArray(*self.pr_t), POINTER(c_float))
-        
-        XjtArray = c_bool * self.T
-        XjArray = POINTER(ctypes.c_bool) * nb
-        xjt_ptr = ctypes.cast(XjArray(*[XjtArray(*self.x_jt[num]) for num in all_ev_num_list]), POINTER(POINTER(c_bool)))
-        
-        ZjkArray = c_bool * nb
-        ZjArray = POINTER(ctypes.c_bool) * nb
-        zjk_ptr = ctypes.cast(ZjArray(*[ZjkArray(*[self.z_jk[num1][num2] for num2 in all_ev_num_list]) for num1 in all_ev_num_list]), POINTER(POINTER(c_bool)))
-        
-        SocjfArray = c_float * nb
-        socjf_ptr = ctypes.cast(SocjfArray(*[self.soc_jf[num] for num in all_ev_num_list]), POINTER(c_float))
-        
-        EtArray = c_float * self.T
-        et_ptr = ctypes.cast(EtArray(*self.e_t), POINTER(c_float))
-        
-        YjArray = c_bool * nb
-        yj_ptr = ctypes.cast(YjArray(*[self.y_j[num] for num in all_ev_num_list]), POINTER(c_bool))
-        
-        UjArray = c_bool * nb
-        uj_ptr = ctypes.cast(UjArray(*[self.u_j[num] for num in all_ev_num_list]), POINTER(c_bool))
-        
-        result_ptr = libmodel.solve(1, 10, 100, self.ts, self.T, self.m, nb_past, nb_ev_assigned, nb_new_requests, self.w, self.eta, self.w_G, self.tau, b_ptr, departure_ptr, arrival_ptr, soc0_ptr, pv_ptr, pr_ptr, xjt_ptr, zjk_ptr, socjf_ptr, yj_ptr, et_ptr, uj_ptr)
-        res = result_ptr.contents
-        new_soc_jf = [res.soc_jf[j] for j in range(nb)]
-        new_e_t = [res.e_t[t] for t in range(T)]
-        new_x_jt = np.array([[res.x_jt[j][t] for t in range(T)] for j in range(nb)])
-        new_y_j = [res.y_j[j] for j in range(nb)]
-        new_u_j = [res.u_j[j] for j in range(nb)]
-
-        libmodel.destroy_result(result_ptr, nb)
-        assert res.solved, "No solution found by CPLEX solver!"
+        nb = len(self.ev_list)
+        new_y_ij, new_x_ijt, new_soc_jf, new_u_j, new_e_t = self.__call_solving()
         
         self.e_t.append(new_e_t[self.ts])
-        
         current_requests_num = [req[self.scenario_keys.index('num')] for req in current_requests_list]
         charging_requests = [0 for _ in range(self.m)]
         power_allocations = [0 for _ in range(self.m)]
         idx_not_found = 0
-        for j, num in enumerate(all_ev_num_list):
+        for j in range(nb):
+            num = self.ev_list[j]['num']
+            charger = self.ev_list[j]['charger']
             if (self.ts == self.r_j[num]):
-                self.y_j[num] = new_y_j[j]
-            elif (self.ts == self.d_j[num]-1) and (num not in self.past_rejected_ev):
-                self.u_j[num] = new_u_j[j]
-                self.soc_jf[num] = new_soc_jf[j]
-                self.past_plugged_ev[num] = {'charger': all_ev[num]['charger'], 'arrival': self.r_j[num], 'departure': self.d_j[num]}
+                y_j = (sum([new_y_ij[i][j] for i in range(self.m)]) == 1)
+                if(y_j):
+                    charger = chargers_departure.index(min(chargers_departure))
+                    chargers_departure[charger] = self.d_j[num]
+                    self.y_ij[charger][num] = y_j
+                    request_ev[num] = {'charger': charger, 'arrival': self.r_j[num], 'departure': self.d_j[num]}
+                    self.ev_list[j].update({'assigned': True, 'past': False, 'charger': request_ev[num]['charger']})
+                else:
+                    request_ev[num] = {'charger': -1, 'arrival': self.r_j[num], 'departure': self.d_j[num]}
+                    self.ev_list[j].update({'assigned': True, 'past': True, 'charger': -1})
             
             if(self.ts == self.r_j[num]):
-                if self.y_j[num]:
+                y_j = sum([self.y_ij[i][num] for i in range(self.m)])
+                if (y_j == 1):
                     if num in current_requests_num:
                         idx = current_requests_num.index(num)
                         charging_requests[idx] = 1
                     else:
                         idx_not_found = 1
                 else:
-                    self.past_rejected_ev[num] = {'charger': -1, 'arrival': self.r_j[num], 'departure': self.d_j[num]}
+                    self.ev_list[j].update({'past': True, 'charger': -1})
             
-            self.x_jt[num][:] = new_x_jt[j, :]
+            if(charger != -1):
+                self.x_ijt[charger][num][self.ts] = (sum([new_x_ijt[i][j][self.ts] for i in range(self.m) if(new_y_ij[i][j])]) == 1)
+                assert (sum([new_x_ijt[i][j][self.ts] for i in range(self.m)]) == 0) or (sum([new_x_ijt[i][j][self.ts] for i in range(self.m)]) == 1), f"sum([new_x_ijt[i][j][self.ts] for i in range(self.m)])={sum([new_x_ijt[i][j][self.ts] for i in range(self.m)])}"
+            else:
+                assert (sum([new_x_ijt[i][j][self.ts] for i in range(self.m)]) == 0), str(num) + " - " + str([new_x_ijt[i][j][self.ts] for i in range(self.m)]) + " - " + str(self.soc_0[num])
 
-        accepted_current_requests_list = [req for req in current_requests_list if(self.y_j[req[self.scenario_keys.index('num')]])]
+        accepted_current_requests_list = [req for req in current_requests_list for i in range(self.m) if(self.y_ij[i][req[self.scenario_keys.index('num')]])]
         num_list = [req[self.scenario_keys.index('num')] for req in current_plugged_list+current_waiting_list+accepted_current_requests_list]
         next_num_list = sorted(num_list[:env.number_of_chargers], key=lambda num: (self.d_j[num], self.r_j[num], self.soc_0[num]))
-        for j, num in enumerate(all_ev_num_list):
-            if(self.r_j[num] <= self.ts < self.d_j[num]):
-                if self.y_j[num]:
-                    if num in next_num_list:
-                        idx = next_num_list.index(num)
-                        power_allocations[idx] = int(self.x_jt[num][self.ts])
-                    else:
-                        assert (int(self.x_jt[num][self.ts]) == 0), str(num) + " - " + str(self.x_jt[num][self.ts]) + " - " + str(self.soc_0[num])
-                else:
-                    assert (int(self.x_jt[num][self.ts]) == 0), str(num) + " - " + str(self.x_jt[num][self.ts]) + " - " + str(self.soc_0[num])
-                    assert (sum(self.x_jt[num]) == 0), str(num) + " - " + str(self.x_jt[num][self.ts]) + " - " + str(self.soc_0[num])
         
-        assert sum([int(self.x_jt[num][self.ts]) for num in all_ev_num_list]) == sum([int(new_x_jt[j, self.ts]) for j in range(nb)])
+        redo_optimization = 0
+        re_optimization_done = False
+        while(redo_optimization < 2):
+            for j in range(nb):
+                num = self.ev_list[j]['num']
+                if(self.r_j[num] <= self.ts < self.d_j[num]):
+                    y_j = sum([self.y_ij[i][num] for i in range(self.m)])
+                    assert (y_j == 0) or (y_j == 1), f"y_j={y_j}"
+                    if (y_j == 1):
+                        if num in next_num_list:
+                            idx = next_num_list.index(num)
+                            power_allocations[idx] = sum([int(self.x_ijt[i][num][self.ts]) for i in range(self.m)])
+                            assert (power_allocations[idx] == 0) or (power_allocations[idx] == 1), f"power_allocations[idx]={power_allocations[idx]}"
+                        else:
+                            if(redo_optimization == 1):
+                                redo_optimization += 1
+                                break
+                            if(sum([int(self.x_ijt[i][num][self.ts]) for i in range(self.m)]) > 0):
+                                for i in range(self.m):
+                                    for req in self.ev_list:
+                                        self.x_ijt[i][req['num']][self.ts] = 0
+                                new_y_ij, new_x_ijt, new_soc_jf, new_u_j, new_e_t = self.__call_solving()
+                                for i in range(self.m):
+                                    for j in range(nb):
+                                        self.x_ijt[i][self.ev_list[j]['num']][self.ts] = new_x_ijt[i][j][self.ts]
+                                self.e_t[-1] = new_e_t[self.ts]
+                                redo_optimization += 1
+                                re_optimization_done = True
+                                break
+                    else:
+                        assert (sum([int(self.x_ijt[i][num][self.ts]) for i in range(self.m)]) == 0), str(num) + " - " + str([self.x_ijt[i][num][self.ts] for i in range(self.m)]) + " - " + str(self.soc_0[num])
+                        assert (sum([sum(self.x_ijt[i][num]) for i in range(self.m)]) == 0), str(num) + " - " + str([self.x_ijt[i][num][self.ts] for i in range(self.m)]) + " - " + str(self.soc_0[num])
+            redo_optimization = 2
+        
+        for j in range(nb):
+            num = self.ev_list[j]['num']
+            charger = self.ev_list[j]['charger']
+            if (self.ts == self.d_j[num]-1) and (num not in self.past_rejected_ev):
+                self.u_j[num] = new_u_j[j]
+                self.soc_jf[num] = new_soc_jf[j]
+                self.ev_list[j].update({'past': True})
+        
+        assert sum([int(self.x_ijt[i][req['num']][self.ts]) for i in range(self.m) for req in self.ev_list]) == sum([int(new_x_ijt[i][j][self.ts]) for i in range(self.m) for j in range(nb)]), f"sum([sum([int(self.x_ijt[i][req['num']][self.ts]) for i in range(self.m)]) for req in self.ev_list])={sum([sum([int(self.x_ijt[i][req['num']][self.ts]) for i in range(self.m)]) for req in self.ev_list])} != sum([int(new_x_ijt[i][j][self.ts]) for i in range(self.m) for j in range(nb)]={sum([int(new_x_ijt[i][j][self.ts]) for i in range(self.m) for j in range(nb)])}"
         assert (idx_not_found == 0), f"Index not found! (idx_not_found={idx_not_found})"
         
         self.ts += 1
@@ -228,11 +266,10 @@ class Rolling:
         return charging_requests + power_allocations
 
     def reset(self):
-        self.x_jt = {}
-        self.z_jk = {}
+        self.x_ijt = [{} for _ in range(self.m)]
         self.soc_jf = {}
         self.e_t = []
-        self.y_j = {}
+        self.y_ij = [{} for _ in range(self.m)]
         self.u_j = {}
         self.d_j = {}
         self.r_j = {}
@@ -240,8 +277,8 @@ class Rolling:
         self.pv_t = [0. for _ in range(self.T)]
         self.pr_t = [0. for _ in range(self.T)]
         self.max_pr_known = 0
-        self.past_plugged_ev = {}
         self.past_rejected_ev = {}
+        self.ev_list = []
         self.ts = 0
     
 
@@ -252,7 +289,7 @@ if __name__ == "__main__":
     parser.add_argument("--schema", default="../../schema.json")
     parser.add_argument("--current_folder", default="../../dataset/ev_scenario-50/", type=str)
     parser.add_argument("--results_folder", default="../../results/rolling/ev_scenario-50/", type=str)
-    parser.add_argument("--initializer", default="Initializer_FIFO")
+    parser.add_argument("--initializer", default="Initializer")
     parser.add_argument("--simulation", default="Simulate_Station_FIFO")
     parser.add_argument("--action", default="Simulate_Actions_FIFO")
     parser.add_argument("--energy", default="Energy_Initializer")
@@ -267,8 +304,35 @@ if __name__ == "__main__":
 
     libmodel = ctypes.CDLL(args.libmodel_name)
     libmodel.solve.restype = POINTER(Result)
-    libmodel.solve.argtypes = [c_float, c_float, c_float, c_int, c_int, c_int, c_int, c_int, c_int, c_float, c_float, c_float, c_float, POINTER(c_float), POINTER(c_int), POINTER(c_int), POINTER(c_float), POINTER(c_float), POINTER(c_float), POINTER(POINTER(c_bool)), POINTER(POINTER(c_bool)), POINTER(c_float), POINTER(c_bool), POINTER(c_float), POINTER(c_bool)]
-    libmodel.destroy_result.argtypes = [POINTER(Result), c_int]
+    libmodel.solve.argtypes = [
+        c_float,  # alpha
+        c_float,  # beta
+        c_float,  # gamma
+        c_int,    # current_ts
+        c_int,    # T
+        c_int,    # m
+        c_int,    # nb_past
+        c_int,    # nb_assigned
+        c_int,    # nb_requests
+        c_float,  # w
+        c_float,  # eta
+        c_float,  # w_G
+        c_float,  # tau
+        POINTER(c_float),  # b_ptr
+        POINTER(c_int),    # d_j_ptr
+        POINTER(c_int),    # r_j_ptr
+        POINTER(c_float),  # soc_0_ptr
+        POINTER(c_float),  # pv_ptr
+        POINTER(c_float),  # pr_ptr
+        POINTER(POINTER(POINTER(c_bool))),  # past_x_ijt_ptr_ptr
+        POINTER(c_float),  # past_soc_jf_ptr
+        POINTER(POINTER(c_bool)),  # past_y_ij_ptr
+        POINTER(c_float),  # past_e_t_ptr
+        POINTER(c_bool),   # past_u_j_ptr
+        POINTER(c_bool),   # assigned_ev_ptr
+        POINTER(c_bool)    # past_ev_ptr
+    ]
+    libmodel.destroy_result.argtypes = [POINTER(Result), c_int, c_int, c_int]
 
     algo_name = 'ROLLING'
     current_folder = args.current_folder
@@ -293,13 +357,14 @@ if __name__ == "__main__":
         T = env.TIMESTEP_MAX // env.step_time
         m = env.number_of_chargers
         n = sum([1 for time_req in env.scenario for _ in time_req])
-        charger_config = env.chargers_types[env.chargers_config['list_chargers'][0]] # We assume that all the chargers are identical
+        charger_config = env.schema['Charger_types'][env.schema['Chargers_config']['list_chargers'][0]] # We assume that all the chargers are identical
         w = charger_config['charging_rate']
         eta = charger_config['charging_efficiency']
-        w_G = env.grid_limit
+        w_G = env.schema['grid_limit']
         tau = (env.step_time / 60)
-        b = env.ev_types[env.ev_config['considered_ev'][0]]['capacity'] # We assume that there is only one type of EV
+        b = env.schema['EV_types'][env.schema['EV_config']['considered_ev'][0]]['capacity'] # We assume that there is only one type of EV
         preemptive_charging = env.preemptive_charging
+        print(f'T: {T}, m: {m}, n: {n}, w: {w}, eta: {eta}, w_G: {w_G}, tau: {tau}, b: {b}, preemptive_charging: {preemptive_charging}')
         simulation_controller_class_name = env.simulation_controller.__class__.__name__
 
         algo = Rolling(env, T=T, m=m, n=n, w=w, eta=eta, w_G=w_G, tau=tau, b=[b for _ in range(n)], preemptive_charging=preemptive_charging, simulation_controller_class_name=simulation_controller_class_name)
