@@ -62,11 +62,11 @@ def get_variables(filename):
 
 def convert_result_to_online_format(result, env, T=97):
     accepted_requests = set()
-    charger_assoication = {}
+    charger_association = {}
     for charger_num, acc_ev in enumerate(result['Decision variables']['y_ij'].values()):
         accepted_requests.update(acc_ev)
         for ev in acc_ev:
-            charger_assoication[ev] = charger_num
+            charger_association[ev] = charger_num
 
     online_result = {}
     n_set_treated = set()
@@ -85,7 +85,7 @@ def convert_result_to_online_format(result, env, T=97):
                     if (n not in n_set_treated) and (req['arrival'] == arr) and (req['departure'] == dep) and ((online_soc_0_5f_str == offline_soc_0_5f_str) or (online_soc_0_5rnd_str == offline_soc_0_5f_str) or (online_soc_0_5rnd_sup_str == offline_soc_0_5f_str) or (online_soc_0_5rnd_inf_str == offline_soc_0_5f_str)):
                         found = True
                         if n in accepted_requests:
-                            online_result[req['num']] = {'PA': result['Decision variables']['X_ijt'][charger_assoication[n]][n], 'charger': charger_assoication[n], 'arrival': arr, 'departure': dep, 'initial_soc': soc_0}#, 'current_soc': soc_0, 'type': 0}
+                            online_result[req['num']] = {'PA': result['Decision variables']['X_ijt'][charger_association[n]][n], 'charger': charger_association[n], 'arrival': arr, 'departure': dep, 'initial_soc': soc_0}#, 'current_soc': soc_0, 'type': 0}
                             for ts, is_charging in enumerate(online_result[req['num']]['PA']):
                                 if is_charging == 1:
                                     online_result[req['num']]['start_charging'] = ts
