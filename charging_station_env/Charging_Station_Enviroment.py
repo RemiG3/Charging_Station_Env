@@ -86,7 +86,7 @@ class ChargingStationEnv(gym.Env):
     Arguments:
         actions: The action to be performed on the environment
     Returns:
-        Tuple[np.ndarray, float, bool, dict]: The next state, the reward, whether the episode is done, whether the episode is troncated, and additional informations
+        Tuple[np.ndarray, float, bool, dict]: The next state, the reward, whether the episode is done, whether the episode is truncated, and additional information
     """
     def step(self, actions: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, dict]:
         reward, info = self.action_controller(self, actions)
