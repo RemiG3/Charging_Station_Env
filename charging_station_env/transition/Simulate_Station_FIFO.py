@@ -129,7 +129,7 @@ class Simulate_Station_FIFO(Simulate_Station_Base):
                                        plugged_ev_duration, waiting_ev_soc, waiting_ev_duration, request_ev_soc, request_ev_duration), axis=None)
         
         assert len(observations) == self.get_observation_size(env), f"Observation size mismatch: {len(observations)} != {self.get_observation_size(env)}"
-        assert not (-1. > observations).any() or (observations > 1.).any(), "Observation values out of range"
+        assert not ((observations < -1.).any() or (observations > 1.).any()), "Observation values out of range"
 
         return observations
 
